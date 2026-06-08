@@ -37,6 +37,7 @@ expected = {
     "board-brainstorming": "board-brainstorming",
     "board-planning":      "board-planning",
     "board-execute":       "board-execute",
+    "using-ai-board":      "using-ai-board",
 }
 for dirname, name in expected.items():
     text = pathlib.Path(f"skills/{dirname}/SKILL.md").read_text()
