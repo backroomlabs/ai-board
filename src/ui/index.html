@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI Board</title>
+<style>
+  :root { --bg:#0f1117; --card:#1b1f2a; --muted:#8b93a7; --accent:#4f8cff; --warn:#ff5d5d; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.4 system-ui, sans-serif; background:var(--bg); color:#e6e9ef; }
+  header { padding:12px 16px; display:flex; gap:12px; align-items:center; border-bottom:1px solid #2a2f3d; }
+  select { background:var(--card); color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:4px 8px; }
+  #cols { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; padding:16px; }
+  .col h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid #2a2f3d; border-radius:8px; padding:10px; margin-bottom:8px; cursor:pointer; }
+  .card:hover { border-color:var(--accent); }
+  .card.implementing { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+  .card.needs_human { border-color:var(--warn); box-shadow:0 0 0 1px var(--warn); }
+  .card .t { font-weight:600; }
+  .card .m { color:var(--muted); font-size:12px; }
+  dialog { background:var(--card); color:#e6e9ef; border:1px solid #2a2f3d; border-radius:10px; max-width:720px; width:90%; }
+  dialog pre { white-space:pre-wrap; background:#11141d; padding:10px; border-radius:6px; overflow:auto; max-height:60vh; }
+  dialog button { float:right; background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; }
+  .crit { margin:0; padding-left:18px; }
+  #design-btn { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:13px; }
+  #design-btn:hover { border-color:var(--accent); color:var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <strong>AI Board</strong>
+  <select id="design"></select>
+  <button id="design-btn" title="View design spec">Design ↗</button>
+  <span id="status" style="color:var(--muted)"></span>
+</header>
+<div id="cols"></div>
+<dialog id="detail"></dialog>
+<dialog id="design-dialog"></dialog>
+
+<script>
+const COLUMNS = ["queued","implementing","verifying","done","needs_human"];
+const LABELS = { queued:"Queued", implementing:"Implementing", verifying:"Verifying", done:"Done", needs_human:"Needs Human" };
+let currentDesign = null;
+let lastTickets = [];
+
+async function loadDesigns() {
+  const designs = await (await fetch("/api/designs")).json();
+  const sel = document.getElementById("design");
+  sel.innerHTML = "";
+  for (const d of designs) {
+    const o = document.createElement("option");
+    o.value = d.id; o.textContent = `#${d.id} ${d.title} (${d.status})`;
+    sel.appendChild(o);
+  }
+  if (designs.length && currentDesign === null) currentDesign = designs[0].id;
+  sel.value = currentDesign;
+}
+
+function render(tickets) {
+  lastTickets = tickets;
+  const root = document.getElementById("cols");
+  root.innerHTML = "";
+  for (const col of COLUMNS) {
+    const wrap = document.createElement("div");
+    wrap.className = "col";
+    const items = tickets.filter(t => t.status === col);
+    wrap.innerHTML = `<h2>${LABELS[col]} (${items.length})</h2>`;
+    for (const t of items) {
+      const c = document.createElement("div");
+      c.className = `card ${t.status}`;
+      c.innerHTML = `<div class="t">#${t.id} ${escapeHtml(t.title)}</div>
+        <div class="m">attempts: ${t.attempts}</div>`;
+      c.onclick = () => showDetail(t.id);
+      wrap.appendChild(c);
+    }
+    root.appendChild(wrap);
+  }
+}
+
+function showDetail(id) {
+  const t = lastTickets.find(x => x.id === id);
+  if (!t) return;
+  const d = document.getElementById("detail");
+  const crit = (t.acceptance_criteria || []).map(c => `<li><code>${escapeHtml(String(c))}</code></li>`).join("");
+  d.innerHTML = `<button onclick="document.getElementById('detail').close()">close</button>
+    <h3>#${t.id} ${escapeHtml(t.title)} — ${t.status}</h3>
+    <h4>Spec</h4><pre>${escapeHtml(t.spec)}</pre>
+    <h4>Acceptance criteria</h4><ul class="crit">${crit}</ul>
+    ${t.human_context ? `<h4>Needs human</h4><pre>${escapeHtml(t.human_context)}</pre>` : ""}`;
+  d.showModal();
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+}
+
+async function poll() {
+  try {
+    if (currentDesign !== null) {
+      const data = await (await fetch(`/api/board?design=${currentDesign}`)).json();
+      if (data.tickets) render(data.tickets);
+      document.getElementById("status").textContent = "updated " + new Date().toLocaleTimeString();
+    }
+  } catch (e) {
+    document.getElementById("status").textContent = "offline";
+  }
+}
+
+document.getElementById("design").onchange = e => { currentDesign = +e.target.value; poll(); };
+
+document.getElementById("design-btn").onclick = async () => {
+  if (currentDesign === null) return;
+  const data = await (await fetch(`/api/design/${currentDesign}`)).json();
+  const d = document.getElementById("design-dialog");
+  d.innerHTML = `<button onclick="document.getElementById('design-dialog').close()">close</button>
+    <h3>${escapeHtml(data.title)} — ${data.status}</h3>
+    <pre>${escapeHtml(data.design_md)}</pre>`;
+  d.showModal();
+};
+
+(async () => {
+  await loadDesigns();
+  await poll();
+  setInterval(async () => { await loadDesigns(); await poll(); }, 500);
+})();
+</script>
+</body>
+</html>

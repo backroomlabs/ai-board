@@ -1,0 +1,15 @@
+# Rust
+/target/
+
+# Board databases
+*.db
+*.db-shm
+*.db-wal
+
+# Demo state
+/tmp/
+
+# Editor
+.DS_Store
+
+docs
