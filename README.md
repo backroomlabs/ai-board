@@ -3,7 +3,7 @@
 A live planning board for agentic development. Your idea becomes a spec, the spec becomes
 tickets, an AI agent works through them — you watch and approve.
 
-![AI Board live board](resources/board.jpg)
+![AI Board live board](resources/board_readme.jpg)
 
 ---
 
