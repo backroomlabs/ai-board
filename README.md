@@ -12,7 +12,7 @@ the **skills** that drive it, and the **Claude Code plugin manifest**.
 ### Binary + skills (Codex, Cursor, or anything reading `~/.agents/skills`)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
 ```
 
 Installs `abd` to `~/.local/bin` and the four skills to `~/.agents/skills`.
@@ -21,14 +21,14 @@ Pin a version with `ABD_VERSION=v0.1.0`; skip skills with `NO_SKILLS=1`.
 ### Claude Code
 
 ```text
-/plugin marketplace add goblin-industries/ai-board
+/plugin marketplace add backroomlabs/ai-board
 /plugin install ai-board@ai-board
 ```
 
 Then install the binary only:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | NO_SKILLS=1 sh
+curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | NO_SKILLS=1 sh
 ```
 
 ### From source

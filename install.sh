@@ -6,12 +6,12 @@
 # plugin instead — see README).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
 #   ABD_VERSION=v0.1.0 ... | sh    # pin a version (default: latest release)
 #   NO_SKILLS=1 ... | sh           # binary only
 set -eu
 
-REPO="goblin-industries/ai-board"
+REPO="backroomlabs/ai-board"
 VERSION="${ABD_VERSION:-latest}"
 BIN_DIR="${ABD_BIN_DIR:-$HOME/.local/bin}"
 SKILLS_DIR="${ABD_SKILLS_DIR:-$HOME/.agents/skills}"

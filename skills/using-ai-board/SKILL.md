@@ -13,7 +13,7 @@ the `abd` CLI is the only thing that touches the database.
 to install it first:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
 ```
 
 ## The Three Skills

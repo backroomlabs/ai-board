@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "SQLite-backed orchestration board for agentic development (abd CLI)"
 license = "MIT"
-repository = "https://github.com/goblin-industries/ai-board"
+repository = "https://github.com/backroomlabs/ai-board"
 
 [[bin]]
 name = "abd"

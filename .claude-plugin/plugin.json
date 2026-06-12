@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "description": "SQLite board as the single source of truth for brainstorm → plan → execute. Skills drive the workflow through the abd CLI; tickets move queued → implementing → verifying → done with a needs_human escape hatch.",
   "author": {
-    "name": "goblin-industries",
-    "url": "https://github.com/goblin-industries"
+    "name": "Backroom Labs",
+    "url": "https://github.com/backroomlabs"
   },
-  "homepage": "https://github.com/goblin-industries/ai-board",
+  "homepage": "https://github.com/backroomlabs/ai-board",
   "license": "MIT"
 }
