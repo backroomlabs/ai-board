@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-board",
+  "description": "Board-backed orchestration for agentic development: brainstorm → plan → execute over a SQLite board.",
+  "owner": {
+    "name": "goblin-industries",
+    "url": "https://github.com/goblin-industries"
+  },
+  "plugins": [
+    {
+      "name": "ai-board",
+      "description": "Four skills (using-ai-board, board-brainstorming, board-planning, board-execute) that drive the brainstorm → plan → execute workflow through the abd CLI. Requires the abd binary on $PATH (see install.sh).",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand};
 use serde_json::Value;
 
 #[derive(Parser)]
-#[command(name = "board", about = "AI Board — SQLite-backed orchestration CLI")]
+#[command(name = "abd", about = "AI Board — SQLite-backed orchestration CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,

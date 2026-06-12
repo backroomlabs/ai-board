@@ -1,6 +1,6 @@
 ---
 name: board-brainstorming
-description: "Use instead of superpowers:brainstorming when working in an ai-board project — explores user intent and design, then persists the approved spec to the SQLite board via 'board create-design' before handing off to board-planning."
+description: "Use instead of superpowers:brainstorming when working in an ai-board project — explores user intent and design, then persists the approved spec to the SQLite board via 'abd create-design' before handing off to board-planning."
 ---
 
 # Brainstorming Ideas Into Designs
@@ -29,7 +29,7 @@ You MUST create a task for each of these items and complete them in order:
 6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and commit
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 8. **User reviews written spec** — ask user to review the spec file before proceeding
-9. **Persist the design to the board** — after the spec is written, committed, AND user-approved, call `board create-design --title <title> --file <spec path>` and capture the returned `design_id`.
+9. **Persist the design to the board** — after the spec is written, committed, AND user-approved, call `abd create-design --title <title> --file <spec path>` and capture the returned `design_id`.
 10. **Transition to implementation** — invoke the writing-plans skill, passing `design_id`, to create the tickets.
 
 ## Process Flow
@@ -134,11 +134,11 @@ Wait for the user's response. If they request changes, make them and re-run the 
 **Implementation:**
 
 - The design is approved, written, and committed. Persist it to the board so it becomes the single source of truth:
-  - Run `board create-design --title "<title>" --file <spec path>` and capture `design_id` from the JSON.
+  - Run `abd create-design --title "<title>" --file <spec path>` and capture `design_id` from the JSON.
   - The design blob is stored once; re-running brainstorm creates a NEW design, never appends.
 - Start the live board UI (idempotent — safe if already running):
   ```bash
-  board serve --port 4141 &
+  abd serve --port 4141 &
   ```
 - Invoke the `board-planning` skill and pass it `design_id`. Do NOT invoke any other skill. `board-planning` is the next step.
 

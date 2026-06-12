@@ -27,7 +27,7 @@ STATE="/tmp/ai-board-demo"
 WORK="$STATE/work"
 RESOLVED="$STATE/.resolved"          # set when the human "answers" ticket 3
 export BOARD_DB="$STATE/board.db"
-BIN="$ROOT/target/release/board"
+BIN="$ROOT/target/release/abd"
 
 # ---- helpers --------------------------------------------------------------
 

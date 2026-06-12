@@ -20,7 +20,7 @@ ticket plan** (that gate lives in `board-planning`). Do not re-ask for approval
   fix the code, not the criterion.
 - **Cap attempts at 3.** On the 3rd failed attempt, escalate to `needs_human`.
 - **Always set `verifying` before running criteria — no exceptions.** Call
-  `board update <id> --status verifying` BEFORE running any acceptance_criteria
+  `abd update <id> --status verifying` BEFORE running any acceptance_criteria
   command. Never jump from `implementing` directly to `done`.
 
 ## The Loop
@@ -31,7 +31,7 @@ Before claiming new work, check for a question left by a previous (possibly
 crashed) session:
 
 ```bash
-board needs-human --design <design_id>
+abd needs-human --design <design_id>
 ```
 
 If it returns a ticket, surface its `human_context` conversationally — assume the
@@ -40,13 +40,13 @@ human has zero memory of the session ("Last session I was blocked on ticket N:
 persisted. Once answered, requeue the ticket and continue:
 
 ```bash
-board update <ticket_id> --status queued
+abd update <ticket_id> --status queued
 ```
 
 ### 1. Claim the next ticket
 
 ```bash
-board next --design <design_id>
+abd next --design <design_id>
 ```
 
 If the result is `{"ticket": null}`, the board is drained — all tickets are
@@ -56,7 +56,7 @@ If the result is `{"ticket": null}`, the board is drained — all tickets are
 ### 2. Read the full ticket
 
 ```bash
-board show <ticket_id>
+abd show <ticket_id>
 ```
 
 This includes the parent `design_md` for context, the `spec`, and the
@@ -73,7 +73,7 @@ the orchestrator's context.
 **First, immediately call this — before running any criteria:**
 
 ```bash
-board update <ticket_id> --status verifying
+abd update <ticket_id> --status verifying
 ```
 
 Then run EVERY command in `acceptance_criteria` and read exit codes. This
@@ -82,7 +82,7 @@ deterministic check IS the review; there is no LLM reviewer in v1.
 - **All criteria pass** →
 
   ```bash
-  board update <ticket_id> --status done
+  abd update <ticket_id> --status done
   ```
 
   Go to step 1.
@@ -90,7 +90,7 @@ deterministic check IS the review; there is no LLM reviewer in v1.
 - **Any criterion fails** and `attempts < 3` →
 
   ```bash
-  board update <ticket_id> --status implementing --bump-attempts
+  abd update <ticket_id> --status implementing --bump-attempts
   ```
 
   Retry from step 3 (dispatch a fresh sub-agent with the failure context).
@@ -99,7 +99,7 @@ deterministic check IS the review; there is no LLM reviewer in v1.
   stop:
 
   ```bash
-  board update <ticket_id> --status needs_human \
+  abd update <ticket_id> --status needs_human \
     --context "Ticket N (<title>): <what failed / what is ambiguous>. Tried: <attempts>. Need: <exact decision required>."
   ```
 
@@ -107,7 +107,7 @@ deterministic check IS the review; there is no LLM reviewer in v1.
 
 ### 5. Loop
 
-Return to step 1 until `board next` yields `{"ticket": null}`.
+Return to step 1 until `abd next` yields `{"ticket": null}`.
 
 ## needs_human is normal
 

@@ -3,7 +3,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 
 fn board(dir: &TempDir) -> Command {
-    let mut cmd = Command::cargo_bin("board").unwrap();
+    let mut cmd = Command::cargo_bin("abd").unwrap();
     cmd.env("BOARD_DB", dir.path().join("board.db"));
     cmd
 }

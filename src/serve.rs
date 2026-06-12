@@ -49,12 +49,12 @@ fn port_in_use(port: u16) -> bool {
 
 pub fn serve(port: u16) -> Result<()> {
     if port_in_use(port) {
-        eprintln!("board serve: already running on port {port}");
+        eprintln!("abd serve: already running on port {port}");
         return Ok(());
     }
     let addr = format!("0.0.0.0:{port}");
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("bind {addr}: {e}"))?;
-    eprintln!("board serve: http://{addr}  (Ctrl-C to stop)");
+    eprintln!("abd serve: http://{addr}  (Ctrl-C to stop)");
 
     for request in server.incoming_requests() {
         let url = request.url().to_string();

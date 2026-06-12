@@ -1,6 +1,6 @@
 ---
 name: board-planning
-description: Use instead of superpowers:writing-plans when working in an ai-board project — decomposes a spec into board tickets via 'board add-ticket' with machine-checkable acceptance_criteria, then hands off to board-execute.
+description: Use instead of superpowers:writing-plans when working in an ai-board project — decomposes a spec into board tickets via 'abd add-ticket' with machine-checkable acceptance_criteria, then hands off to board-execute.
 ---
 
 # Writing Plans
@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
 
-**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `board add-ticket` (see Output Target below). The board is the single source of truth; `design_id` is passed in by the brainstorming skill.
+**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `abd add-ticket` (see Output Target below). The board is the single source of truth; `design_id` is passed in by the brainstorming skill.
 
 ## Scope Check
 
@@ -34,10 +34,10 @@ This structure informs the task decomposition. Each task should produce self-con
 
 ## Output Target: Board Tickets
 
-This skill does NOT write a `plan` file. For each task you would have written, call the board CLI once:
+This skill does NOT write a `plan` file. For each task you would have written, call the `abd` CLI once:
 
 ```bash
-board add-ticket --design <design_id> \
+abd add-ticket --design <design_id> \
   --title "<task component name>" \
   --spec "<the Files: block + complete implementation steps and code>" \
   --criteria '<JSON array of exact commands + expected result>'
@@ -59,7 +59,7 @@ Run the **Self-Review** checklist BEFORE emitting any tickets.
 Good:   `["cargo test auth::login -v => PASS", "curl -s localhost:4141/health => 200"]`
 Bad:    `["login works", "no regressions"]`
 
-The board CLI also rejects non-array criteria, but you must never lean on that — emit a real, runnable array every time.
+The `abd` CLI also rejects non-array criteria, but you must never lean on that — emit a real, runnable array every time.
 
 ## Bite-Sized Task Granularity
 
@@ -148,13 +148,13 @@ After all tickets are emitted and Self-Review has passed:
 **1. Start the board UI and direct the user to review.** Run this first (idempotent — safe if already running):
 
 ```bash
-board serve --port 4141 &
+abd serve --port 4141 &
 ```
 
 Then tell the user:
 
 > "N tickets are queued on the board. Open http://localhost:4141 to review the plan — click each card to see the spec and acceptance criteria. Let me know when you're happy with it, or tell me what to change."
 
-**2. Wait for explicit approval.** Do not invoke `board-execute` until the user says yes. If they request changes, edit the affected tickets (`board update`) or add/remove tickets, then ask them to re-check the board.
+**2. Wait for explicit approval.** Do not invoke `board-execute` until the user says yes. If they request changes, edit the affected tickets (`abd update`) or add/remove tickets, then ask them to re-check the board.
 
 **3. On approval, invoke `board-execute`** with `design_id`. There is no other execution path.

@@ -2,15 +2,15 @@
 set -euo pipefail
 fail() { echo "FAIL: $1"; exit 1; }
 
-# brainstorming: handoff now calls the board CLI, not a bare writing-plans handoff
-grep -q 'board create-design' skills/board-brainstorming/SKILL.md \
-  || fail "board-brainstorming missing 'board create-design' handoff"
+# brainstorming: handoff now calls the abd CLI, not a bare writing-plans handoff
+grep -q 'abd create-design' skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming missing 'abd create-design' handoff"
 grep -q 'design_id' skills/board-brainstorming/SKILL.md \
   || fail "board-brainstorming missing design_id capture"
 
 # board-planning: emits tickets, no plan.md, enforces teeth rule
-grep -q 'board add-ticket' skills/board-planning/SKILL.md \
-  || fail "board-planning missing 'board add-ticket'"
+grep -q 'abd add-ticket' skills/board-planning/SKILL.md \
+  || fail "board-planning missing 'abd add-ticket'"
 grep -qi 'plan\.md' skills/board-planning/SKILL.md \
   && fail "board-planning still references plan.md"
 grep -q 'Plan Document Header' skills/board-planning/SKILL.md \
@@ -21,10 +21,10 @@ grep -qi 'reject' skills/board-planning/SKILL.md \
   || fail "board-planning missing prose-criteria rejection rule"
 
 # board-execute: needs-human first, then next; cap 3; never weaken
-grep -q 'board needs-human' skills/board-execute/SKILL.md \
+grep -q 'abd needs-human' skills/board-execute/SKILL.md \
   || fail "board-execute missing needs-human startup check"
-grep -q 'board next' skills/board-execute/SKILL.md \
-  || fail "board-execute missing board next"
+grep -q 'abd next' skills/board-execute/SKILL.md \
+  || fail "board-execute missing abd next"
 grep -qi 'cap' skills/board-execute/SKILL.md \
   || fail "board-execute missing attempts cap"
 grep -qi 'never weaken' skills/board-execute/SKILL.md \

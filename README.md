@@ -1,17 +1,43 @@
-# `board` — AI Board CLI
+# `abd` — AI Board CLI
 
 SQLite-backed orchestration board for agentic development: one design → many
 tickets, walked through `queued → implementing → verifying → done` with a
-`needs_human` escape hatch. See [`ai-board.md`](ai-board.md) for the full design.
+`needs_human` escape hatch.
 
-This repo is the **backend + CLI** (Rust, single static binary, SQLite bundled).
-Skills and UI are out of scope here.
+This repo holds the **`abd` CLI** (Rust, single static binary, SQLite bundled),
+the **skills** that drive it, and the **Claude Code plugin manifest**.
 
-## Build
+## Install
+
+### Binary + skills (Codex, Cursor, or anything reading `~/.agents/skills`)
 
 ```bash
-cargo build --release   # binary at target/release/board
-cargo test              # unit + end-to-end tests
+curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | sh
+```
+
+Installs `abd` to `~/.local/bin` and the four skills to `~/.agents/skills`.
+Pin a version with `ABD_VERSION=v0.1.0`; skip skills with `NO_SKILLS=1`.
+
+### Claude Code
+
+```text
+/plugin marketplace add goblin-industries/ai-board
+/plugin install ai-board@ai-board
+```
+
+Then install the binary only:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/goblin-industries/ai-board/main/install.sh | NO_SKILLS=1 sh
+```
+
+### From source
+
+```bash
+cargo install ai-board        # from crates.io (binary is named `abd`)
+# or, in a checkout:
+cargo build --release         # binary at target/release/abd
+cargo test                    # unit + end-to-end tests
 ```
 
 SQLite is compiled in (`rusqlite` `bundled` feature) — no system `libsqlite3`.
@@ -24,27 +50,27 @@ DB path comes from `$BOARD_DB`, default `./board.db`.
 
 ```bash
 export BOARD_DB=/path/to/board.db
-board init      # create schema (idempotent)
+abd init      # create schema (idempotent)
 ```
 
 ## Commands
 
 All commands emit **JSON to stdout**. On error they print
 `{"ok":false,"error":...}` to **stderr** and exit non-zero. The one exception is
-`board design`, which prints **raw markdown** for humans.
+`abd design`, which prints **raw markdown** for humans.
 
 | Command | Output |
 | --- | --- |
-| `board init` | `{ok, db}` — creates the schema |
-| `board create-design --title T (--file PATH \| --stdin)` | `{id, title}` |
-| `board add-ticket --design ID --title T --spec "..." --criteria '[...]'` | `{id}` |
-| `board next [--design ID]` | claimed ticket (→`implementing`) or `{ticket:null}` |
-| `board show TICKET_ID` | full ticket incl. parent `design_md` |
-| `board list --design ID` | `[tickets...]` |
-| `board update TICKET_ID --status S [--context "..."] [--bump-attempts]` | updated ticket |
-| `board needs-human [--design ID]` | stranded `needs_human` ticket or `{ticket:null}` |
-| `board design DESIGN_ID` | raw markdown (pipe to `glow`/`less`) |
-| `board serve [--port 4141]` | serve the read-only live UI (see below) |
+| `abd init` | `{ok, db}` — creates the schema |
+| `abd create-design --title T (--file PATH \| --stdin)` | `{id, title}` |
+| `abd add-ticket --design ID --title T --spec "..." --criteria '[...]'` | `{id}` |
+| `abd next [--design ID]` | claimed ticket (→`implementing`) or `{ticket:null}` |
+| `abd show TICKET_ID` | full ticket incl. parent `design_md` |
+| `abd list --design ID` | `[tickets...]` |
+| `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | updated ticket |
+| `abd needs-human [--design ID]` | stranded `needs_human` ticket or `{ticket:null}` |
+| `abd design DESIGN_ID` | raw markdown (pipe to `glow`/`less`) |
+| `abd serve [--port 4141]` | serve the read-only live UI (see below) |
 
 `--criteria` **must** be a JSON array of checkable command strings, e.g.
 `'["cargo test => PASS", "tsc --noEmit => clean"]'`. Non-array input is rejected —
@@ -58,20 +84,20 @@ enforced by the executor, not the CLI).
 
 ```bash
 export BOARD_DB=/tmp/board.db
-board init
-board create-design --title "Auth" --file specs/auth.md      # -> {"id":1,...}
-board add-ticket --design 1 --title "Login endpoint" \
+abd init
+abd create-design --title "Auth" --file specs/auth.md        # -> {"id":1,...}
+abd add-ticket --design 1 --title "Login endpoint" \
   --spec "Add POST /login ..." \
   --criteria '["cargo test login => PASS"]'                   # -> {"id":1}
-board next --design 1                                         # claims ticket 1
-board update 1 --status done                                  # mark verified
-board design 1 | less                                         # read the design
+abd next --design 1                                           # claims ticket 1
+abd update 1 --status done                                    # mark verified
+abd design 1 | less                                           # read the design
 ```
 
 ## Live UI
 
 ```bash
-board serve --port 4141   # http://localhost:4141
+abd serve --port 4141   # http://localhost:4141
 ```
 
 Read-only board over the same `$BOARD_DB`. Five columns by status
@@ -101,8 +127,22 @@ cards move through the columns live.
 
 ## Skills
 
-`skills/` holds the three orchestration skills (Superpowers SKILL.md format):
-`brainstorming` and `writing-plans` (forked) and `execute-ticket` (new). They
-drive the `brainstorm → plan → execute` workflow through this CLI. See
-[`LICENSE-NOTICE.md`](LICENSE-NOTICE.md) for attribution. Run
+`skills/` holds the four orchestration skills (SKILL.md format):
+`using-ai-board` (session entry point), `board-brainstorming` and
+`board-planning` (forked from Superpowers) and `board-execute` (new). They
+drive the `brainstorm → plan → execute` workflow through the `abd` CLI. Run
 `scripts/check-skills.sh` to verify their structure.
+
+## Releasing
+
+Push a `v*` tag. CI ([.github/workflows/release.yml](.github/workflows/release.yml))
+builds `abd` for Linux (musl, x86_64 + aarch64, fully static), macOS
+(x86_64 + arm64), and Windows (MSVC, static CRT), packages `skills.tar.gz`, and
+publishes everything as a GitHub Release — which is what `install.sh` downloads.
+
+## License
+
+MIT — see [LICENSE](LICENSE). `board-brainstorming` and `board-planning` derive
+from [Superpowers](https://github.com/obra/superpowers) (MIT, Jesse Vincent);
+see [LICENSE-NOTICE.md](LICENSE-NOTICE.md) and
+[LICENSE.superpowers](LICENSE.superpowers).
