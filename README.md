@@ -1,22 +1,34 @@
-# `abd` — AI Board CLI
+# AI Board
 
-SQLite-backed orchestration board for agentic development: one design → many
-tickets, walked through `queued → implementing → verifying → done` with a
-`needs_human` escape hatch.
+A live planning board for agentic development. Your idea becomes a spec, the spec becomes
+tickets, an AI agent works through them — you watch and approve.
 
-This repo holds the **`abd` CLI** (Rust, single static binary, SQLite bundled),
-the **skills** that drive it, and the **Claude Code plugin manifest**.
+![AI Board live board](resources/board.jpg)
+
+---
+
+## How it works
+
+Three AI skills drive the workflow:
+
+**1. `board-brainstorming`** — Explores your idea, asks clarifying questions,
+writes a spec, saves it to the board as a design.
+
+**2. `board-planning`** — Reads the design, breaks it into tickets. Each ticket
+has a `spec` (what to build) and `acceptance_criteria` (real shell commands that
+must pass — never prose). Opens the live board so you can review every ticket
+before execution starts.
+
+**3. `board-execute`** — Works through tickets in order. For each ticket it
+dispatches a fresh sub-agent (clean context, no baggage from prior tickets),
+runs the acceptance criteria for real, and marks the ticket done. If something
+fails three times or hits genuine ambiguity, it stops and asks you.
+
+You can watch the whole thing on the live board at `http://localhost:4141`.
+
+---
 
 ## Install
-
-### Binary + skills (Codex, Cursor, or anything reading `~/.agents/skills`)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
-```
-
-Installs `abd` to `~/.local/bin` and the four skills to `~/.agents/skills`.
-Pin a version with `ABD_VERSION=v0.1.0`; skip skills with `NO_SKILLS=1`.
 
 ### Claude Code
 
@@ -25,124 +37,97 @@ Pin a version with `ABD_VERSION=v0.1.0`; skip skills with `NO_SKILLS=1`.
 /plugin install ai-board@ai-board
 ```
 
-Then install the binary only:
+Then install the `abd` binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | NO_SKILLS=1 sh
+curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
 ```
+
+### Codex, Cursor, or anything reading `~/.agents/skills`
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/backroomlabs/ai-board/main/install.sh | sh
+```
+
+Installs `abd` to `~/.local/bin` and the four skills to `~/.agents/skills`.
 
 ### From source
 
 ```bash
-cargo install ai-board        # from crates.io (binary is named `abd`)
-# or, in a checkout:
-cargo build --release         # binary at target/release/abd
-cargo test                    # unit + end-to-end tests
+cargo install ai-board   # binary is named `abd`
+# or
+cargo build --release    # binary at target/release/abd
 ```
 
-SQLite is compiled in (`rusqlite` `bundled` feature) — no system `libsqlite3`.
-For a truly static Linux binary: `cargo build --release --target x86_64-unknown-linux-musl`
-(needs `musl-tools` for `musl-gcc`, since bundled SQLite compiles C).
+---
 
-## Database
+## Usage
 
-DB path comes from `$BOARD_DB`, default `./board.db`.
+Start a new project:
+
+```
+/board-brainstorming
+```
+
+The agent guides you through the whole flow. Open `http://localhost:4141` when
+prompted to review the plan, then say yes to start execution.
+
+---
+
+## Live board
 
 ```bash
-export BOARD_DB=/path/to/board.db
-abd init      # create schema (idempotent)
+abd serve   # http://localhost:4141
 ```
 
-## Commands
+Five columns: `queued → implementing → verifying → done` + `needs_human`.
+Cards move across as the agent works. Click any card to see its spec, acceptance
+criteria, and (if blocked) the question the agent is asking. The `needs_human`
+column is where you intervene.
 
-All commands emit **JSON to stdout**. On error they print
-`{"ok":false,"error":...}` to **stderr** and exit non-zero. The one exception is
-`abd design`, which prints **raw markdown** for humans.
+The board is **read-only** in v1 — editing tickets via UI is coming in v2.
 
-| Command | Output |
-| --- | --- |
-| `abd init` | `{ok, db}` — creates the schema |
-| `abd create-design --title T (--file PATH \| --stdin)` | `{id, title}` |
-| `abd add-ticket --design ID --title T --spec "..." --criteria '[...]'` | `{id}` |
-| `abd next [--design ID]` | claimed ticket (→`implementing`) or `{ticket:null}` |
-| `abd show TICKET_ID` | full ticket incl. parent `design_md` |
-| `abd list --design ID` | `[tickets...]` |
-| `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | updated ticket |
-| `abd needs-human [--design ID]` | stranded `needs_human` ticket or `{ticket:null}` |
-| `abd design DESIGN_ID` | raw markdown (pipe to `glow`/`less`) |
-| `abd serve [--port 4141]` | serve the read-only live UI (see below) |
+---
 
-`--criteria` **must** be a JSON array of checkable command strings, e.g.
-`'["cargo test => PASS", "tsc --noEmit => clean"]'`. Non-array input is rejected —
-this is the system's teeth: acceptance criteria are machine-checkable, never prose.
+## `abd` CLI reference
 
-Valid `--status` values: `queued`, `implementing`, `verifying`, `done`,
-`needs_human`. `--bump-attempts` increments the retry counter (cap-at-3 is
-enforced by the executor, not the CLI).
+The `abd` binary is the only thing that touches the database. All commands emit
+JSON to stdout; errors go to stderr as `{"ok":false,"error":"..."}` with a
+non-zero exit code.
 
-## Example
+| Command | What it does |
+|---|---|
+| `abd init` | Create the schema (idempotent) |
+| `abd create-design --title T (--file PATH \| --stdin)` | Save a design spec |
+| `abd add-ticket --design ID --title T --spec "..." --criteria '[...]'` | Add a ticket |
+| `abd next [--design ID]` | Atomically claim the oldest queued ticket |
+| `abd show TICKET_ID` | Full ticket including the parent design spec |
+| `abd list --design ID` | All tickets for a design |
+| `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | Update a ticket |
+| `abd needs-human [--design ID]` | Get the blocked ticket, if any |
+| `abd design DESIGN_ID` | Print the raw design spec (pipe to `glow`/`less`) |
+| `abd serve [--port 4141]` | Start the live board UI (idempotent) |
 
-```bash
-export BOARD_DB=/tmp/board.db
-abd init
-abd create-design --title "Auth" --file specs/auth.md        # -> {"id":1,...}
-abd add-ticket --design 1 --title "Login endpoint" \
-  --spec "Add POST /login ..." \
-  --criteria '["cargo test login => PASS"]'                   # -> {"id":1}
-abd next --design 1                                           # claims ticket 1
-abd update 1 --status done                                    # mark verified
-abd design 1 | less                                           # read the design
-```
+`$BOARD_DB` sets the database path (default `./board.db`).
 
-## Live UI
-
-```bash
-abd serve --port 4141   # http://localhost:4141
-```
-
-Read-only board over the same `$BOARD_DB`. Five columns by status
-(`queued → implementing → verifying → done`, plus `needs_human`); cards move as
-the headless loop updates the board. The page polls every ~1.5s (no websockets).
-Click a card for its `spec`, `acceptance_criteria`, and `human_context`. The
-`implementing` card is accent-highlighted; `needs_human` cards are flagged red.
-
-Endpoints (GET only): `/api/designs`, `/api/board?design=N`, `/` (the page).
-Editing from the UI (requeue, mark done, edit spec/criteria) is **v2** — v1.5 is
-read-only.
+---
 
 ## Demo
 
 ```bash
-demo/demo.sh                 # build, serve UI, run the loop (open http://localhost:4141)
-DEMO_SLEEP=0.4 demo/demo.sh  # faster pacing
-NO_SERVE=1 demo/demo.sh      # headless, no UI
+demo/demo.sh                 # build, serve UI, run the full loop
+DEMO_SLEEP=0.4 demo/demo.sh  # faster
+NO_SERVE=1 demo/demo.sh      # headless
 ```
 
-Pure simulation: the board state machine, atomic claim, criteria-as-shell verify
-(real exit codes), attempts-cap → `needs_human`, and crash-style resume are all
-genuine; only the spec ([demo/spec.md](demo/spec.md)) and the per-ticket "code"
-are canned (those are the LLM steps). Three tickets: two clean passes, one rigged
-to fail 3× → `needs_human` → resolved on resume. Run with the UI open to watch
-cards move through the columns live.
+Runs the full state machine — including a ticket that fails three times, escalates
+to `needs_human`, and resumes after a simulated crash — against a live board you
+can watch.
 
-## Skills
-
-`skills/` holds the four orchestration skills (SKILL.md format):
-`using-ai-board` (session entry point), `board-brainstorming` and
-`board-planning` (forked from Superpowers) and `board-execute` (new). They
-drive the `brainstorm → plan → execute` workflow through the `abd` CLI. Run
-`scripts/check-skills.sh` to verify their structure.
-
-## Releasing
-
-Push a `v*` tag. CI ([.github/workflows/release.yml](.github/workflows/release.yml))
-builds `abd` for Linux (musl, x86_64 + aarch64, fully static), macOS
-(x86_64 + arm64), and Windows (MSVC, static CRT), packages `skills.tar.gz`, and
-publishes everything as a GitHub Release — which is what `install.sh` downloads.
+---
 
 ## License
 
 MIT — see [LICENSE](LICENSE). `board-brainstorming` and `board-planning` derive
 from [Superpowers](https://github.com/obra/superpowers) (MIT, Jesse Vincent);
-see [LICENSE-NOTICE.md](LICENSE-NOTICE.md) and
-[LICENSE.superpowers](LICENSE.superpowers).
+see [LICENSE-NOTICE.md](LICENSE-NOTICE.md) and [LICENSE.superpowers](LICENSE.superpowers).
