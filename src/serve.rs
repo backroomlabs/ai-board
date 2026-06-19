@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::io::Read;
 use tiny_http::{Header, Method, Response, Server};
 
 use crate::{commands, db};
@@ -56,11 +57,54 @@ pub fn serve(port: u16) -> Result<()> {
     let server = Server::http(&addr).map_err(|e| anyhow::anyhow!("bind {addr}: {e}"))?;
     eprintln!("abd serve: http://{addr}  (Ctrl-C to stop)");
 
-    for request in server.incoming_requests() {
+    for mut request in server.incoming_requests() {
         let url = request.url().to_string();
-        let is_get = *request.method() == Method::Get;
+        let method = request.method().clone();
 
-        if !is_get {
+        if method == Method::Patch && url.starts_with("/api/design/") {
+            let id_str = url.trim_start_matches("/api/design/");
+            let id: i64 = match id_str.parse() {
+                Ok(v) => v,
+                Err(_) => {
+                    let body = serde_json::json!({"ok": false, "error": "invalid design id"}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let mut raw = String::new();
+            if request.as_reader().read_to_string(&mut raw).is_err() {
+                let _ = request.respond(Response::from_string("bad request").with_status_code(400));
+                continue;
+            }
+            let parsed: serde_json::Value = match serde_json::from_str(&raw) {
+                Ok(v) => v,
+                Err(e) => {
+                    let body = serde_json::json!({"ok": false, "error": e.to_string()}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let title = parsed["title"].as_str().unwrap_or("");
+            let design_md = parsed["design_md"].as_str().unwrap_or("");
+            let (body, code) = match commands::update_design(id, title, design_md) {
+                Ok(v) => (v.to_string(), 200),
+                Err(e) => {
+                    let msg = e.to_string();
+                    let code = if msg.contains("not found") { 404 } else { 400 };
+                    (serde_json::json!({"ok": false, "error": msg}).to_string(), code)
+                }
+            };
+            let _ = request.respond(
+                Response::from_string(body).with_header(json_header()).with_status_code(code),
+            );
+            continue;
+        }
+
+        if method != Method::Get {
             let _ =
                 request.respond(Response::from_string("method not allowed").with_status_code(405));
             continue;
