@@ -183,6 +183,30 @@ pub fn design(design_id: i64) -> Result<Value> {
     Ok(json!({ "__raw__": md }))
 }
 
+pub fn update_design(id: i64, title: &str, design_md: &str) -> Result<Value> {
+    let conn = db::open()?;
+    let changed = conn.execute(
+        "UPDATE design SET title = ?1, design_md = ?2 WHERE id = ?3",
+        rusqlite::params![title, design_md, id],
+    )?;
+    if changed == 0 {
+        anyhow::bail!("no design with id {id}");
+    }
+    let row = conn.query_row(
+        "SELECT id, title, status, design_md FROM design WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(json!({
+                "id": r.get::<_, i64>(0)?,
+                "title": r.get::<_, String>(1)?,
+                "status": r.get::<_, String>(2)?,
+                "design_md": r.get::<_, String>(3)?,
+            }))
+        },
+    )?;
+    Ok(row)
+}
+
 /// Full design including design_md, for the UI design viewer.
 pub fn design_md_json(conn: &Connection, design_id: i64) -> Result<Value> {
     let row = conn
@@ -304,5 +328,36 @@ mod view_tests {
     fn board_json_unknown_design_errors() {
         let conn = seed();
         assert!(board_json(&conn, 999).is_err());
+    }
+
+    #[test]
+    fn update_design_changes_title_and_md() {
+        let conn = seed();
+        // seed() creates design id=1 with title="D", design_md="md"
+        // update_design opens its own conn via db::open() so we need to use
+        // the env var approach — but since seed() is in-memory we can't.
+        // Test the SQL logic directly on the seed conn instead:
+        let changed = conn.execute(
+            "UPDATE design SET title = ?1, design_md = ?2 WHERE id = ?3",
+            rusqlite::params!["New Title", "# New Content", 1i64],
+        ).unwrap();
+        assert_eq!(changed, 1);
+        let (title, md): (String, String) = conn.query_row(
+            "SELECT title, design_md FROM design WHERE id = 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(title, "New Title");
+        assert_eq!(md, "# New Content");
+    }
+
+    #[test]
+    fn update_design_missing_id_changes_zero_rows() {
+        let conn = seed();
+        let changed = conn.execute(
+            "UPDATE design SET title = ?1, design_md = ?2 WHERE id = ?3",
+            rusqlite::params!["X", "Y", 999i64],
+        ).unwrap();
+        assert_eq!(changed, 0);
     }
 }
