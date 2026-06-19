@@ -90,8 +90,26 @@ pub fn serve(port: u16) -> Result<()> {
                     continue;
                 }
             };
-            let title = parsed["title"].as_str().unwrap_or("");
-            let design_md = parsed["design_md"].as_str().unwrap_or("");
+            let title = match parsed["title"].as_str() {
+                Some(v) => v,
+                None => {
+                    let body = serde_json::json!({"ok": false, "error": "missing field: title"}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let design_md = match parsed["design_md"].as_str() {
+                Some(v) => v,
+                None => {
+                    let body = serde_json::json!({"ok": false, "error": "missing field: design_md"}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    );
+                    continue;
+                }
+            };
             let (body, code) = match commands::update_design(id, title, design_md) {
                 Ok(v) => (v.to_string(), 200),
                 Err(e) => {

@@ -170,6 +170,11 @@ pub fn needs_human(design: Option<i64>) -> Result<Value> {
     }
 }
 
+pub fn designs() -> Result<Value> {
+    let conn = db::open()?;
+    designs_json(&conn)
+}
+
 pub fn design(design_id: i64) -> Result<Value> {
     let conn = db::open()?;
     let md: String = conn
@@ -190,7 +195,7 @@ pub fn update_design(id: i64, title: &str, design_md: &str) -> Result<Value> {
         rusqlite::params![title, design_md, id],
     )?;
     if changed == 0 {
-        anyhow::bail!("no design with id {id}");
+        anyhow::bail!("design {id} not found");
     }
     let row = conn.query_row(
         "SELECT id, title, status, design_md FROM design WHERE id = ?1",
