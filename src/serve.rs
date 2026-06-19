@@ -75,7 +75,10 @@ pub fn serve(port: u16) -> Result<()> {
             };
             let mut raw = String::new();
             if request.as_reader().read_to_string(&mut raw).is_err() {
-                let _ = request.respond(Response::from_string("bad request").with_status_code(400));
+                let body = serde_json::json!({"ok": false, "error": "failed to read request body"}).to_string();
+                let _ = request.respond(
+                    Response::from_string(body).with_header(json_header()).with_status_code(400),
+                );
                 continue;
             }
             let parsed: serde_json::Value = match serde_json::from_str(&raw) {
