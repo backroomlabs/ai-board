@@ -152,8 +152,8 @@ function DesignModal({ data, onClose }) {
   return html`
     <${Modal} open=${!!data} onClose=${onClose}>
       ${data && html`
+        <button class="close-btn" style="margin-left:8px" onClick=${handleEdit}>Edit ✏️</button>
         <button class="close-btn" onClick=${onClose}>close</button>
-        <button class="close-btn" style="margin-right:8px" onClick=${handleEdit}>Edit ✏️</button>
         <h3>${data.title} — ${data.status}</h3>
         <pre>${data.design_md}</pre>
       `}
