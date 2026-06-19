@@ -1,5 +1,4 @@
 use anyhow::Result;
-use std::io::Read;
 use tiny_http::{Header, Method, Response, Server};
 
 use crate::{commands, db};
