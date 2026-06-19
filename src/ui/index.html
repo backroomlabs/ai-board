@@ -24,6 +24,19 @@
   .crit { margin:0; padding-left:18px; }
   #design-btn { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:13px; }
   #design-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .edit-page { display:flex; flex-direction:column; height:100vh; }
+  .edit-header { padding:10px 16px; display:flex; gap:10px; align-items:center; border-bottom:1px solid #2a2f3d; background:var(--bg); }
+  .edit-header input { flex:1; background:#11141d; color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:6px 10px; font-size:15px; font-weight:600; }
+  .edit-header input:focus { outline:none; border-color:var(--accent); }
+  .edit-body { flex:1; overflow:hidden; }
+  .edit-body .EasyMDEContainer { height:100%; display:flex; flex-direction:column; }
+  .edit-body .CodeMirror { flex:1; height:auto; background:#11141d; color:#e6e9ef; }
+  .edit-body .editor-preview { background:#11141d; color:#e6e9ef; padding:16px; }
+  .btn-primary { background:var(--accent); color:#fff; border:none; border-radius:6px; padding:5px 14px; cursor:pointer; font-size:13px; }
+  .btn-primary:hover { opacity:0.85; }
+  .btn-secondary { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:5px 14px; cursor:pointer; font-size:13px; }
+  .btn-secondary:hover { border-color:var(--muted); }
+  .edit-error { color:var(--warn); font-size:13px; }
 </style>
 <style id="easymde-css">
 /**
@@ -131,14 +144,102 @@ function DetailModal({ ticket, onClose }) {
 }
 
 function DesignModal({ data, onClose }) {
+  function handleEdit() {
+    onClose();
+    window.location.hash = `#/edit/${data.id}`;
+  }
+
   return html`
     <${Modal} open=${!!data} onClose=${onClose}>
       ${data && html`
         <button class="close-btn" onClick=${onClose}>close</button>
+        <button class="close-btn" style="margin-right:8px" onClick=${handleEdit}>Edit ✏️</button>
         <h3>${data.title} — ${data.status}</h3>
         <pre>${data.design_md}</pre>
       `}
     </${Modal}>
+  `;
+}
+
+function EditDesignPage({ designId }) {
+  const [design, setDesign] = useState(null);
+  const [title, setTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const textareaRef = useRef(null);
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`/api/design/${designId}`)
+      .then(r => { if (!r.ok) throw new Error(`design ${designId} not found`); return r.json(); })
+      .then(d => { setDesign(d); setTitle(d.title); })
+      .catch(e => setError(e.message));
+  }, [designId]);
+
+  useEffect(() => {
+    if (!design || !textareaRef.current || editorRef.current) return;
+    editorRef.current = new EasyMDE({
+      element: textareaRef.current,
+      initialValue: design.design_md,
+      spellChecker: false,
+      autofocus: true,
+    });
+    return () => {
+      if (editorRef.current) { editorRef.current.toTextArea(); editorRef.current = null; }
+    };
+  }, [design]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/design/${designId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, design_md: editorRef.current.value() }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(j.error || res.statusText);
+      }
+      window.location.hash = '#/';
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCancel() { window.location.hash = '#/'; }
+
+  if (error && !design) return html`
+    <div style="padding:24px">
+      <p style="color:var(--warn)">${error}</p>
+      <button class="btn-secondary" onClick=${() => { window.location.hash = '#/'; }}>← Back</button>
+    </div>
+  `;
+  if (!design) return html`<div style="padding:24px;color:var(--muted)">Loading…</div>`;
+
+  return html`
+    <div class="edit-page">
+      <div class="edit-header">
+        <button class="btn-secondary" onClick=${handleCancel}>← Back</button>
+        <input
+          type="text"
+          value=${title}
+          onInput=${e => setTitle(e.target.value)}
+          placeholder="Design title"
+        />
+        ${error && html`<span class="edit-error">${error}</span>`}
+        <button class="btn-secondary" onClick=${handleCancel}>Cancel</button>
+        <button class="btn-primary" onClick=${handleSave} disabled=${saving}>
+          ${saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <div class="edit-body">
+        <textarea ref=${textareaRef} />
+      </div>
+    </div>
   `;
 }
 
@@ -149,8 +250,15 @@ function App() {
   const [status, setStatus] = useState("");
   const [detailId, setDetailId] = useState(null);
   const [designData, setDesignData] = useState(null);
+  const [hash, setHash] = useState(window.location.hash);
 
   const designRef = useRef(null);
+
+  useEffect(() => {
+    const handler = () => setHash(window.location.hash);
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, []);
 
   async function loadDesigns() {
     const list = await (await fetch("/api/designs")).json();
@@ -192,6 +300,12 @@ function App() {
     setCurrentDesign(id);
     setTickets([]);
     pollBoard();
+  }
+
+  // Hash routing: #/edit/:id
+  const editMatch = hash.match(/^#\/edit\/(\d+)$/);
+  if (editMatch) {
+    return html`<${EditDesignPage} designId=${+editMatch[1]} />`;
   }
 
   const detailTicket = tickets.find(t => t.id === detailId) || null;
