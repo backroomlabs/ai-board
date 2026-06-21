@@ -475,7 +475,8 @@ function App() {
   // Hash routing: #/edit/:id and #/ticket/:id/edit
   const ticketEditMatch = hash.match(/^#\/ticket\/(\d+)\/edit$/);
   if (ticketEditMatch) {
-    return html`<${EditTicketPage} ticketId=${+ticketEditMatch[1]} />`;
+    const ticketId = +ticketEditMatch[1];
+    return html`<${EditTicketPage} key=${ticketId} ticketId=${ticketId} />`;
   }
 
   const editMatch = hash.match(/^#\/edit\/(\d+)$/);
