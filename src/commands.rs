@@ -98,10 +98,9 @@ pub fn next(design: Option<i64>) -> Result<Value> {
     }
 }
 
-pub fn show(ticket_id: i64) -> Result<Value> {
-    let conn = db::open()?;
-    let ticket = row_to_ticket(&conn, ticket_id)?
-        .ok_or_else(|| anyhow::anyhow!("no ticket with id {ticket_id}"))?;
+pub fn ticket_json(conn: &Connection, ticket_id: i64) -> Result<Value> {
+    let ticket = row_to_ticket(conn, ticket_id)?
+        .ok_or_else(|| anyhow::anyhow!("ticket {ticket_id} not found"))?;
     let design_md: String = conn.query_row(
         "SELECT design_md FROM design WHERE id = ?1",
         [ticket.design_id],
@@ -110,6 +109,49 @@ pub fn show(ticket_id: i64) -> Result<Value> {
     let mut value = serde_json::to_value(&ticket)?;
     value["design_md"] = Value::String(design_md);
     Ok(value)
+}
+
+pub fn show(ticket_id: i64) -> Result<Value> {
+    let conn = db::open()?;
+    ticket_json(&conn, ticket_id)
+}
+
+pub fn update_ticket_content_json(
+    conn: &Connection,
+    ticket_id: i64,
+    title: &str,
+    spec: &str,
+    acceptance_criteria: &Value,
+) -> Result<Value> {
+    if title.trim().is_empty() {
+        anyhow::bail!("title must not be empty");
+    }
+    if spec.trim().is_empty() {
+        anyhow::bail!("spec must not be empty");
+    }
+    if !acceptance_criteria.is_array() {
+        anyhow::bail!("acceptance_criteria must be a JSON array");
+    }
+
+    let criteria_json = serde_json::to_string(acceptance_criteria)?;
+    let changed = conn.execute(
+        "UPDATE ticket SET title = ?1, spec = ?2, acceptance_criteria = ?3 WHERE id = ?4",
+        rusqlite::params![title, spec, criteria_json, ticket_id],
+    )?;
+    if changed == 0 {
+        anyhow::bail!("ticket {ticket_id} not found");
+    }
+    ticket_json(conn, ticket_id)
+}
+
+pub fn update_ticket_content(
+    ticket_id: i64,
+    title: &str,
+    spec: &str,
+    acceptance_criteria: &Value,
+) -> Result<Value> {
+    let conn = db::open()?;
+    update_ticket_content_json(&conn, ticket_id, title, spec, acceptance_criteria)
 }
 
 pub fn list(design: i64) -> Result<Value> {
@@ -333,6 +375,86 @@ mod view_tests {
     fn board_json_unknown_design_errors() {
         let conn = seed();
         assert!(board_json(&conn, 999).is_err());
+    }
+
+    #[test]
+    fn ticket_json_includes_parent_design_md() {
+        let conn = seed();
+        let v = ticket_json(&conn, 1).unwrap();
+        assert_eq!(v["id"], 1);
+        assert_eq!(v["title"], "T1");
+        assert_eq!(v["design_md"], "md");
+        assert!(v["acceptance_criteria"].is_array());
+    }
+
+    #[test]
+    fn update_ticket_content_changes_only_content_fields() {
+        let conn = seed();
+        conn.execute(
+            "UPDATE ticket SET status = 'needs_human', attempts = 2, human_context = 'blocked' WHERE id = 1",
+            [],
+        )
+        .unwrap();
+
+        let criteria = json!(["cargo test => PASS", "cargo fmt --check => PASS"]);
+        let v = update_ticket_content_json(
+            &conn,
+            1,
+            "New ticket title",
+            "New ticket spec",
+            &criteria,
+        )
+        .unwrap();
+
+        assert_eq!(v["title"], "New ticket title");
+        assert_eq!(v["spec"], "New ticket spec");
+        assert_eq!(v["acceptance_criteria"], criteria);
+        assert_eq!(v["status"], "needs_human");
+        assert_eq!(v["attempts"], 2);
+        assert_eq!(v["human_context"], "blocked");
+    }
+
+    #[test]
+    fn update_ticket_content_allows_empty_criteria_array() {
+        let conn = seed();
+        let v = update_ticket_content_json(&conn, 1, "Title", "Spec", &json!([])).unwrap();
+        assert_eq!(v["acceptance_criteria"], json!([]));
+    }
+
+    #[test]
+    fn update_ticket_content_rejects_empty_title() {
+        let conn = seed();
+        let err = update_ticket_content_json(&conn, 1, "   ", "Spec", &json!([]))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "title must not be empty");
+    }
+
+    #[test]
+    fn update_ticket_content_rejects_empty_spec() {
+        let conn = seed();
+        let err = update_ticket_content_json(&conn, 1, "Title", "\n\t", &json!([]))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "spec must not be empty");
+    }
+
+    #[test]
+    fn update_ticket_content_rejects_non_array_criteria() {
+        let conn = seed();
+        let err = update_ticket_content_json(&conn, 1, "Title", "Spec", &json!({"bad": true}))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "acceptance_criteria must be a JSON array");
+    }
+
+    #[test]
+    fn update_ticket_content_rejects_unknown_ticket() {
+        let conn = seed();
+        let err = update_ticket_content_json(&conn, 999, "Title", "Spec", &json!([]))
+            .unwrap_err()
+            .to_string();
+        assert_eq!(err, "ticket 999 not found");
     }
 
     #[test]
