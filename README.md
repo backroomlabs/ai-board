@@ -1,9 +1,19 @@
 # AI Board
 
-A live planning board for agentic development. Your idea becomes a spec, the spec becomes
-tickets, an AI agent works through them — you watch and approve.
+A live planning board for agentic development. Your idea becomes a spec, a
+capable planning agent turns that spec into tickets, and smaller execution
+agents pick up those tickets one by one — you watch and approve.
 
 ![AI Board live board](resources/board_readme.jpg)
+
+---
+
+## Vision — AI spec-driven development
+
+AI Board is built around a simple idea: use a capable agent for the hard
+planning work — clarifying intent, writing the design, and breaking it into
+tickets with acceptance criteria — then let smaller, cheaper agents pick up
+those bounded tickets one at a time.
 
 ---
 
@@ -85,7 +95,8 @@ Cards move across as the agent works. Click any card to see its spec, acceptance
 criteria, and (if blocked) the question the agent is asking. The `needs_human`
 column is where you intervene.
 
-The board is **read-only** in v1 — editing tickets via UI is coming in v2.
+Click any card to drill into its full spec and criteria. Design docs are
+editable directly from the board.
 
 ---
 
@@ -105,7 +116,8 @@ non-zero exit code.
 | `abd list --design ID` | All tickets for a design |
 | `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | Update a ticket |
 | `abd needs-human [--design ID]` | Get the blocked ticket, if any |
-| `abd design DESIGN_ID` | Print the raw design spec (pipe to `glow`/`less`) |
+| `abd design list` | List all designs (JSON array, newest first) |
+| `abd design show DESIGN_ID` | Print the raw design spec (pipe to `glow`/`less`) |
 | `abd serve [--port 4141]` | Start the live board UI (idempotent) |
 
 `$BOARD_DB` sets the database path (default `./board.db`).

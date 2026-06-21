@@ -41,7 +41,8 @@ abd show TICKET_ID          → full ticket + parent design_md
 abd list --design ID        → all tickets for a design (full JSON)
 abd update TICKET_ID --status S [--context "..."] [--bump-attempts]
 abd needs-human [--design ID] → stranded needs_human ticket or {ticket:null}
-abd design DESIGN_ID        → raw markdown of the design spec
+abd design list             → JSON array of all designs (newest first)
+abd design show DESIGN_ID   → raw markdown of the design spec
 abd serve [--port 4141]     → live read-only UI at http://localhost:4141
 ```
 

@@ -74,14 +74,25 @@ enum Cmd {
         design: Option<i64>,
     },
 
-    /// Print a design's raw markdown (NOT JSON; for humans).
-    Design { design_id: i64 },
+    /// Subcommands for working with designs.
+    Design {
+        #[command(subcommand)]
+        cmd: DesignCmd,
+    },
 
     /// Serve the read-only live board UI over HTTP.
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
     },
+}
+
+#[derive(Subcommand)]
+enum DesignCmd {
+    /// List all designs (JSON array, newest first).
+    List,
+    /// Print a design's raw markdown (NOT JSON; for humans).
+    Show { design_id: i64 },
 }
 
 fn run(cli: Cli) -> Result<Value> {
@@ -106,7 +117,10 @@ fn run(cli: Cli) -> Result<Value> {
             bump_attempts,
         } => commands::update(ticket_id, &status, context.as_deref(), bump_attempts),
         Cmd::NeedsHuman { design } => commands::needs_human(design),
-        Cmd::Design { design_id } => commands::design(design_id),
+        Cmd::Design { cmd } => match cmd {
+            DesignCmd::List => commands::designs(),
+            DesignCmd::Show { design_id } => commands::design(design_id),
+        },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
     }
 }

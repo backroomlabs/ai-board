@@ -344,13 +344,65 @@ fn design_prints_raw_markdown() {
         .as_i64()
         .unwrap();
     let out = board(&dir)
-        .args(["design", &d.to_string()])
+        .args(["design", "show", &d.to_string()])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
     assert_eq!(String::from_utf8(out).unwrap().trim_end(), "# Raw\nmd");
+}
+
+#[test]
+fn design_list_returns_all_designs() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "first").unwrap();
+    board(&dir)
+        .args(["create-design", "--title", "First", "--file"])
+        .arg(&spec)
+        .assert()
+        .success();
+    std::fs::write(&spec, "second").unwrap();
+    board(&dir)
+        .args(["create-design", "--title", "Second", "--file"])
+        .arg(&spec)
+        .assert()
+        .success();
+
+    let out = board(&dir)
+        .args(["design", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    // newest first
+    assert_eq!(arr[0]["title"], "Second");
+    assert_eq!(arr[1]["title"], "First");
+    assert!(arr[0]["id"].is_number());
+    assert!(arr[0]["status"].is_string());
+    assert!(arr[0]["created_at"].is_string());
+}
+
+#[test]
+fn design_list_empty_returns_empty_array() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let out = board(&dir)
+        .args(["design", "list"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v.as_array().unwrap().len(), 0);
 }
 
 #[test]
