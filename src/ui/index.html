@@ -37,6 +37,17 @@
   .btn-secondary { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:5px 14px; cursor:pointer; font-size:13px; }
   .btn-secondary:hover { border-color:var(--muted); }
   .edit-error { color:var(--warn); font-size:13px; }
+  .ticket-edit-body { flex:1; min-height:0; display:grid; grid-template-rows:minmax(260px, 1fr) auto; overflow:hidden; }
+  .ticket-edit-body .edit-body { min-height:0; }
+  .criteria-panel { border-top:1px solid #2a2f3d; background:var(--bg); padding:12px 16px; max-height:36vh; overflow:auto; }
+  .criteria-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+  .criteria-head h3 { margin:0; font-size:13px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .criteria-list { display:flex; flex-direction:column; gap:8px; }
+  .criteria-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; }
+  .criteria-row textarea { width:100%; min-height:42px; resize:vertical; background:#11141d; color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:7px 9px; font:13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .criteria-row textarea:focus { outline:none; border-color:var(--accent); }
+  .icon-btn { width:32px; height:32px; display:inline-grid; place-items:center; background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; cursor:pointer; font-size:18px; line-height:1; }
+  .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
 </style>
 <style id="easymde-css">
 /**
@@ -149,9 +160,15 @@ function Board({ tickets, onTicketClick }) {
 }
 
 function DetailModal({ ticket, onClose }) {
+  function handleEdit() {
+    onClose();
+    window.location.hash = `#/ticket/${ticket.id}/edit`;
+  }
+
   return html`
     <${Modal} open=${!!ticket} onClose=${onClose}>
       ${ticket && html`
+        <button class="close-btn" style="margin-left:8px" onClick=${handleEdit}>Edit</button>
         <button class="close-btn" onClick=${onClose}>close</button>
         <h3>#${ticket.id} ${ticket.title} — ${ticket.status}</h3>
         <h4>Spec</h4>
@@ -267,6 +284,135 @@ function EditDesignPage({ designId }) {
   `;
 }
 
+function EditTicketPage({ ticketId }) {
+  const [ticket, setTicket] = useState(null);
+  const [title, setTitle] = useState('');
+  const [criteria, setCriteria] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const textareaRef = useRef(null);
+  const editorRef = useRef(null);
+
+  useEffect(() => {
+    fetch(`/api/ticket/${ticketId}`)
+      .then(r => { if (!r.ok) throw new Error(`ticket ${ticketId} not found`); return r.json(); })
+      .then(t => {
+        setTicket(t);
+        setTitle(t.title);
+        setCriteria(Array.isArray(t.acceptance_criteria) ? t.acceptance_criteria.map(c => String(c)) : []);
+      })
+      .catch(e => setError(e.message));
+  }, [ticketId]);
+
+  useEffect(() => {
+    if (!ticket || !textareaRef.current || editorRef.current) return;
+    editorRef.current = new EasyMDE({
+      element: textareaRef.current,
+      initialValue: ticket.spec,
+      spellChecker: false,
+      autofocus: true,
+      autoDownloadFontAwesome: false,
+    });
+    return () => {
+      if (editorRef.current) { editorRef.current.toTextArea(); editorRef.current = null; }
+    };
+  }, [ticket]);
+
+  function updateCriterion(index, value) {
+    setCriteria(items => items.map((item, i) => i === index ? value : item));
+  }
+
+  function addCriterion() {
+    setCriteria(items => [...items, '']);
+  }
+
+  function removeCriterion(index) {
+    setCriteria(items => items.filter((_, i) => i !== index));
+  }
+
+  async function handleSave() {
+    const spec = editorRef.current ? editorRef.current.value() : '';
+    if (title.trim() === '') {
+      setError('title must not be empty');
+      return;
+    }
+    if (spec.trim() === '') {
+      setError('spec must not be empty');
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    try {
+      const acceptance_criteria = criteria.filter(c => c.trim() !== '');
+      const res = await fetch(`/api/ticket/${ticketId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, spec, acceptance_criteria }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(j.error || res.statusText);
+      }
+      window.location.hash = '#/';
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCancel() { window.location.hash = '#/'; }
+
+  if (error && !ticket) return html`
+    <div style="padding:24px">
+      <p style="color:var(--warn)">${error}</p>
+      <button class="btn-secondary" onClick=${() => { window.location.hash = '#/'; }}>← Back</button>
+    </div>
+  `;
+  if (!ticket) return html`<div style="padding:24px;color:var(--muted)">Loading…</div>`;
+
+  return html`
+    <div class="edit-page">
+      <div class="edit-header">
+        <button class="btn-secondary" onClick=${handleCancel}>← Back</button>
+        <input
+          type="text"
+          value=${title}
+          onInput=${e => setTitle(e.target.value)}
+        />
+        ${error && html`<span class="edit-error">${error}</span>`}
+        <button class="btn-secondary" onClick=${handleCancel}>Cancel</button>
+        <button class="btn-primary" onClick=${handleSave} disabled=${saving}>
+          ${saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <div class="ticket-edit-body">
+        <div class="edit-body">
+          <textarea ref=${textareaRef} />
+        </div>
+        <div class="criteria-panel">
+          <div class="criteria-head">
+            <h3>Acceptance criteria</h3>
+            <button class="icon-btn" title="Add criterion" onClick=${addCriterion}>+</button>
+          </div>
+          <div class="criteria-list">
+            ${criteria.map((criterion, i) => html`
+              <div class="criteria-row" key=${i}>
+                <textarea
+                  value=${criterion}
+                  onInput=${e => updateCriterion(i, e.target.value)}
+                />
+                <button class="icon-btn" title="Remove criterion" onClick=${() => removeCriterion(i)}>-</button>
+              </div>
+            `)}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function App() {
   const [designs, setDesigns] = useState([]);
   const [currentDesign, setCurrentDesign] = useState(null);
@@ -326,7 +472,12 @@ function App() {
     pollBoard();
   }
 
-  // Hash routing: #/edit/:id
+  // Hash routing: #/edit/:id and #/ticket/:id/edit
+  const ticketEditMatch = hash.match(/^#\/ticket\/(\d+)\/edit$/);
+  if (ticketEditMatch) {
+    return html`<${EditTicketPage} ticketId=${+ticketEditMatch[1]} />`;
+  }
+
   const editMatch = hash.match(/^#\/edit\/(\d+)$/);
   if (editMatch) {
     return html`<${EditDesignPage} designId=${+editMatch[1]} />`;
