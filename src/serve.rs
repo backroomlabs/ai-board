@@ -35,6 +35,18 @@ fn parse_prefixed_id(path: &str, prefix: &str, label: &str) -> Result<i64> {
         .map_err(|_| anyhow::anyhow!("invalid {label} id"))
 }
 
+fn parse_json_body(raw: &str) -> std::result::Result<serde_json::Value, String> {
+    serde_json::from_str(raw).map_err(|e| e.to_string())
+}
+
+fn api_error_status(message: &str) -> u16 {
+    if message.contains("not found") {
+        404
+    } else {
+        400
+    }
+}
+
 /// Build the JSON body for a request path, or an error.
 fn route_json(url: &str) -> Result<serde_json::Value> {
     let conn = db::open()?;
@@ -98,7 +110,7 @@ fn patch_ticket_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
         Ok(v) => (v.to_string(), 200),
         Err(e) => {
             let msg = e.to_string();
-            let code = if msg.contains("not found") { 404 } else { 400 };
+            let code = api_error_status(&msg);
             (serde_json::json!({"ok": false, "error": msg}).to_string(), code)
         }
     }
@@ -137,10 +149,10 @@ pub fn serve(port: u16) -> Result<()> {
                 );
                 continue;
             }
-            let parsed: serde_json::Value = match serde_json::from_str(&raw) {
+            let parsed: serde_json::Value = match parse_json_body(&raw) {
                 Ok(v) => v,
                 Err(e) => {
-                    let body = serde_json::json!({"ok": false, "error": e.to_string()}).to_string();
+                    let body = serde_json::json!({"ok": false, "error": e}).to_string();
                     let _ = request.respond(
                         Response::from_string(body).with_header(json_header()).with_status_code(400),
                     );
@@ -174,10 +186,10 @@ pub fn serve(port: u16) -> Result<()> {
                 );
                 continue;
             }
-            let parsed: serde_json::Value = match serde_json::from_str(&raw) {
+            let parsed: serde_json::Value = match parse_json_body(&raw) {
                 Ok(v) => v,
                 Err(e) => {
-                    let body = serde_json::json!({"ok": false, "error": e.to_string()}).to_string();
+                    let body = serde_json::json!({"ok": false, "error": e}).to_string();
                     let _ = request.respond(
                         Response::from_string(body).with_header(json_header()).with_status_code(400),
                     );
@@ -233,14 +245,10 @@ pub fn serve(port: u16) -> Result<()> {
         if url.starts_with("/api/") {
             let (body, code) = match route_json(&url) {
                 Ok(v) => (v.to_string(), 200),
-                Err(e) => (
-                    serde_json::json!({"ok": false, "error": e.to_string()}).to_string(),
-                    if e.to_string().contains("not found") {
-                        404
-                    } else {
-                        400
-                    },
-                ),
+                Err(e) => {
+                    let msg = e.to_string();
+                    (serde_json::json!({"ok": false, "error": msg}).to_string(), api_error_status(&msg))
+                }
             };
             let resp = Response::from_string(body)
                 .with_header(json_header())
@@ -303,6 +311,12 @@ mod tests {
     }
 
     #[test]
+    fn parse_json_body_rejects_malformed_json() {
+        let err = parse_json_body("{").unwrap_err();
+        assert!(err.contains("EOF") || err.contains("expected"));
+    }
+
+    #[test]
     fn request_path_strips_query_string() {
         assert_eq!(request_path("/api/ticket/1?foo=bar"), "/api/ticket/1");
     }
@@ -324,6 +338,42 @@ mod tests {
         assert_eq!(v["title"], "Updated");
         assert_eq!(v["spec"], "updated spec");
         assert_eq!(v["acceptance_criteria"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn patch_ticket_response_rejects_empty_spec() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let payload = serde_json::json!({
+            "title": "Valid title",
+            "spec": "   ",
+            "acceptance_criteria": []
+        });
+
+        let (body, code) = patch_ticket_response(1, &payload);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(code, 400);
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "spec must not be empty");
+    }
+
+    #[test]
+    fn patch_ticket_response_rejects_non_array_criteria() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let payload = serde_json::json!({
+            "title": "Valid title",
+            "spec": "Valid spec",
+            "acceptance_criteria": {"bad": true}
+        });
+
+        let (body, code) = patch_ticket_response(1, &payload);
+        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(code, 400);
+        assert_eq!(v["ok"], false);
+        assert_eq!(v["error"], "acceptance_criteria must be a JSON array");
     }
 
     #[test]
@@ -359,5 +409,13 @@ mod tests {
         assert_eq!(code, 404);
         assert_eq!(v["ok"], false);
         assert_eq!(v["error"], "ticket 999 not found");
+    }
+
+    #[test]
+    fn route_json_unknown_ticket_maps_to_404_status() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let msg = route_json("/api/ticket/999").unwrap_err().to_string();
+        assert_eq!(api_error_status(&msg), 404);
     }
 }
