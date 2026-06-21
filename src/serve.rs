@@ -22,6 +22,10 @@ fn query_design(url: &str) -> Option<i64> {
         .and_then(|(_, v)| v.parse().ok())
 }
 
+fn request_path(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
+}
+
 fn parse_prefixed_id(path: &str, prefix: &str, label: &str) -> Result<i64> {
     let raw = path.trim_start_matches(prefix);
     if raw.is_empty() || raw.contains('/') {
@@ -34,7 +38,7 @@ fn parse_prefixed_id(path: &str, prefix: &str, label: &str) -> Result<i64> {
 /// Build the JSON body for a request path, or an error.
 fn route_json(url: &str) -> Result<serde_json::Value> {
     let conn = db::open()?;
-    let path = url.split('?').next().unwrap_or(url);
+    let path = request_path(url);
     match path {
         "/api/designs" => commands::designs_json(&conn),
         "/api/board" => {
@@ -112,9 +116,10 @@ pub fn serve(port: u16) -> Result<()> {
     for mut request in server.incoming_requests() {
         let url = request.url().to_string();
         let method = request.method().clone();
+        let path = request_path(&url);
 
-        if method == Method::Patch && url.starts_with("/api/ticket/") {
-            let id = match parse_prefixed_id(&url, "/api/ticket/", "ticket") {
+        if method == Method::Patch && path.starts_with("/api/ticket/") {
+            let id = match parse_prefixed_id(path, "/api/ticket/", "ticket") {
                 Ok(v) => v,
                 Err(e) => {
                     let body = serde_json::json!({"ok": false, "error": e.to_string()}).to_string();
@@ -149,8 +154,8 @@ pub fn serve(port: u16) -> Result<()> {
             continue;
         }
 
-        if method == Method::Patch && url.starts_with("/api/design/") {
-            let id_str = url.trim_start_matches("/api/design/");
+        if method == Method::Patch && path.starts_with("/api/design/") {
+            let id_str = path.trim_start_matches("/api/design/");
             let id: i64 = match id_str.parse() {
                 Ok(v) => v,
                 Err(_) => {
@@ -295,6 +300,11 @@ mod tests {
         let _dir = with_temp_db();
         let err = route_json("/api/ticket/nope").unwrap_err().to_string();
         assert_eq!(err, "invalid ticket id");
+    }
+
+    #[test]
+    fn request_path_strips_query_string() {
+        assert_eq!(request_path("/api/ticket/1?foo=bar"), "/api/ticket/1");
     }
 
     #[test]
