@@ -51,7 +51,8 @@ fn make_spec(dir: &TempDir) -> i64 {
 fn add_ticket(dir: &TempDir, spec_id: i64, title: &str) -> i64 {
     let out = board(dir)
         .args([
-            "add-ticket",
+            "ticket",
+            "add",
             "--spec-id",
             &spec_id.to_string(),
             "--title",
@@ -119,7 +120,8 @@ fn add_ticket_ok() {
     let spec_id = make_spec(&dir);
     let out = board(&dir)
         .args([
-            "add-ticket",
+            "ticket",
+            "add",
             "--spec-id",
             &spec_id.to_string(),
             "--title",
@@ -145,7 +147,8 @@ fn add_ticket_rejects_non_array_criteria() {
     let spec_id = make_spec(&dir);
     board(&dir)
         .args([
-            "add-ticket",
+            "ticket",
+            "add",
             "--spec-id",
             &spec_id.to_string(),
             "--title",
@@ -165,7 +168,8 @@ fn add_ticket_rejects_unknown_spec() {
     init(&dir);
     board(&dir)
         .args([
-            "add-ticket",
+            "ticket",
+            "add",
             "--spec-id",
             "999",
             "--title",
@@ -229,7 +233,7 @@ fn show_returns_ticket_without_parent_content() {
     let ticket_id = add_ticket(&dir, spec_id, "t1");
 
     let out = board(&dir)
-        .args(["show", &ticket_id.to_string()])
+        .args(["ticket", "show", &ticket_id.to_string()])
         .assert()
         .success()
         .get_output()
@@ -251,7 +255,7 @@ fn list_returns_array() {
     add_ticket(&dir, spec_id, "a");
     add_ticket(&dir, spec_id, "b");
     let out = board(&dir)
-        .args(["list", "--spec-id", &spec_id.to_string()])
+        .args(["ticket", "list", "--spec-id", &spec_id.to_string()])
         .assert()
         .success()
         .get_output()
@@ -265,7 +269,11 @@ fn list_returns_array() {
 fn list_rejects_unknown_spec() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    assert_json_error(&dir, &["list", "--spec-id", "999"], "spec 999 not found");
+    assert_json_error(
+        &dir,
+        &["ticket", "list", "--spec-id", "999"],
+        "spec 999 not found",
+    );
 }
 
 #[test]
@@ -453,10 +461,17 @@ fn removed_design_commands_and_flags_are_rejected() {
         .args(["next", "--design", "1"])
         .assert()
         .failure();
+    board(&dir).args(["add-ticket"]).assert().failure();
+    board(&dir).args(["show", "1"]).assert().failure();
+    board(&dir)
+        .args(["list", "--spec-id", "1"])
+        .assert()
+        .failure();
     let spec_id = make_spec(&dir).to_string();
     board(&dir)
         .args([
-            "add-ticket",
+            "ticket",
+            "add",
             "--spec-id",
             &spec_id,
             "--title",
@@ -583,7 +598,7 @@ fn errors_emit_json_envelope_to_stderr() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     let out = board(&dir)
-        .args(["show", "999"])
+        .args(["ticket", "show", "999"])
         .assert()
         .failure()
         .get_output()

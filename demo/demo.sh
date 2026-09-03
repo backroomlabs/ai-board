@@ -185,13 +185,13 @@ printf "  spec_id=%s\n" "$SID"
 pause
 
 banner "board-planning stub — emit 3 tickets with real acceptance_criteria"
-"$BIN" add-ticket --spec-id "$SID" --title "Create greeter" \
+"$BIN" ticket add --spec-id "$SID" --title "Create greeter" \
   --description "Create $WORK/greet.sh as a Bash script that prints exactly hello when run without arguments." \
   --criteria "[\"test -f $WORK/greet.sh => PASS\", \"bash $WORK/greet.sh | grep -q '^hello$' => PASS\"]" >/dev/null
-"$BIN" add-ticket --spec-id "$SID" --title "Greet by name" \
+"$BIN" ticket add --spec-id "$SID" --title "Greet by name" \
   --description "Update the existing $WORK/greet.sh so its first argument is a name, defaulting to world, and it prints exactly hello followed by that name." \
   --criteria "[\"bash $WORK/greet.sh World | grep -q 'hello World' => PASS\"]" >/dev/null
-"$BIN" add-ticket --spec-id "$SID" --title "Uppercase greeting" \
+"$BIN" ticket add --spec-id "$SID" --title "Uppercase greeting" \
   --description "Update the existing $WORK/greet.sh so the greeting and supplied name are uppercase, producing exactly HELLO WORLD for argument world." \
   --criteria "[\"bash $WORK/greet.sh world | grep -q 'HELLO WORLD' => PASS\"]" >/dev/null
 printf "  3 tickets queued\n"

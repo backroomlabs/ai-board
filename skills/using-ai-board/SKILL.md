@@ -44,10 +44,10 @@ abd init
 abd spec add --title T (--file PATH | --stdin)  → {id, title}
 abd spec list                                → all specs, newest first
 abd spec get SPEC_ID                         → raw spec content
-abd add-ticket --spec-id ID --title T --description "..." --criteria '[...]'  → {id}
+abd ticket add --spec-id ID --title T --description "..." --criteria '[...]'  → {id}
 abd next [--spec-id ID]      → claims oldest queued ticket (→ implementing)
-abd show TICKET_ID           → ticket JSON only
-abd list --spec-id ID        → all tickets for a spec (full JSON)
+abd ticket show TICKET_ID    → ticket JSON only
+abd ticket list --spec-id ID → all tickets for a spec (full JSON)
 abd update TICKET_ID --status S [--context "..."] [--bump-attempts]
 abd needs-human [--spec-id ID] → stranded needs_human ticket or {ticket:null}
 abd serve [--port 4141]      → live editable UI at http://localhost:4141
@@ -78,7 +78,7 @@ If a session crashed mid-implementation, the ticket stays in `implementing`.
 `abd next` skips it (only claims `queued`). Detect and reset on startup:
 
 ```bash
-abd list --spec-id <spec_id>
+abd ticket list --spec-id <spec_id>
 ```
 
 Find any tickets with `"status": "implementing"`. These are stranded — the

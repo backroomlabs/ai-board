@@ -46,7 +46,7 @@ abd update <ticket_id> --status queued
 Also recover work stranded in `implementing` by a crashed session:
 
 ```bash
-abd list --spec-id <spec_id>
+abd ticket list --spec-id <spec_id>
 ```
 
 Find every ticket with `"status": "implementing"` and reset it before claiming

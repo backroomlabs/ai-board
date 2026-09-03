@@ -120,10 +120,10 @@ stderr as `{"ok":false,"error":"..."}` with a non-zero exit code.
 | `abd spec add --title T (--file PATH \| --stdin)` | Save a spec |
 | `abd spec list` | List all specs (JSON array, newest first) |
 | `abd spec get SPEC_ID` | Print the raw spec content |
-| `abd add-ticket --spec-id ID --title T --description "..." --criteria '[...]'` | Add a self-contained ticket |
+| `abd ticket add --spec-id ID --title T --description "..." --criteria '[...]'` | Add a self-contained ticket |
 | `abd next [--spec-id ID]` | Atomically claim the oldest queued ticket |
-| `abd show TICKET_ID` | Show ticket JSON only |
-| `abd list --spec-id ID` | List all tickets for a spec |
+| `abd ticket show TICKET_ID` | Show ticket JSON only |
+| `abd ticket list --spec-id ID` | List all tickets for a spec |
 | `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | Update a ticket |
 | `abd needs-human [--spec-id ID]` | Get the blocked ticket, if any |
 | `abd serve [--port 4141]` | Start the live board UI (idempotent) |

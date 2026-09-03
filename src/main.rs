@@ -19,32 +19,10 @@ enum Cmd {
     /// Initialize the board database (idempotent).
     Init,
 
-    /// Add a ticket to a spec.
-    AddTicket {
-        #[arg(long)]
-        spec_id: i64,
-        #[arg(long)]
-        title: String,
-        #[arg(long)]
-        description: String,
-        /// JSON array of checkable criteria, e.g. '["cargo test => PASS"]'
-        #[arg(long)]
-        criteria: String,
-    },
-
     /// Claim the oldest queued ticket (queued -> implementing).
     Next {
         #[arg(long)]
         spec_id: Option<i64>,
-    },
-
-    /// Show a ticket (JSON).
-    Show { ticket_id: i64 },
-
-    /// List tickets for a spec (JSON array).
-    List {
-        #[arg(long)]
-        spec_id: i64,
     },
 
     /// Update a ticket's status / context / attempts.
@@ -70,10 +48,39 @@ enum Cmd {
         cmd: SpecCmd,
     },
 
+    /// Commands for working with tickets.
+    Ticket {
+        #[command(subcommand)]
+        cmd: TicketCmd,
+    },
+
     /// Serve the live editable board UI over HTTP.
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
+    },
+}
+
+#[derive(Subcommand)]
+enum TicketCmd {
+    /// Add a ticket to a spec.
+    Add {
+        #[arg(long)]
+        spec_id: i64,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        description: String,
+        /// JSON array of checkable criteria, e.g. '["cargo test => PASS"]'
+        #[arg(long)]
+        criteria: String,
+    },
+    /// Show a ticket (JSON).
+    Show { ticket_id: i64 },
+    /// List tickets for a spec (JSON array).
+    List {
+        #[arg(long)]
+        spec_id: i64,
     },
 }
 
@@ -97,15 +104,7 @@ enum SpecCmd {
 fn run(cli: Cli) -> Result<Value> {
     match cli.command {
         Cmd::Init => commands::init(),
-        Cmd::AddTicket {
-            spec_id,
-            title,
-            description,
-            criteria,
-        } => commands::add_ticket(spec_id, &title, &description, &criteria),
         Cmd::Next { spec_id } => commands::next(spec_id),
-        Cmd::Show { ticket_id } => commands::show(ticket_id),
-        Cmd::List { spec_id } => commands::list(spec_id),
         Cmd::Update {
             ticket_id,
             status,
@@ -119,6 +118,16 @@ fn run(cli: Cli) -> Result<Value> {
             }
             SpecCmd::List => commands::specs(),
             SpecCmd::Get { spec_id } => commands::get_spec(spec_id),
+        },
+        Cmd::Ticket { cmd } => match cmd {
+            TicketCmd::Add {
+                spec_id,
+                title,
+                description,
+                criteria,
+            } => commands::add_ticket(spec_id, &title, &description, &criteria),
+            TicketCmd::Show { ticket_id } => commands::show(ticket_id),
+            TicketCmd::List { spec_id } => commands::list(spec_id),
         },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
     }

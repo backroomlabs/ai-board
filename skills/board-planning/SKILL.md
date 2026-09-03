@@ -1,6 +1,6 @@
 ---
 name: board-planning
-description: Use instead of superpowers:writing-plans when working in an ai-board project — decomposes a spec into board tickets via 'abd add-ticket' with machine-checkable acceptance_criteria, then hands off to board-execute.
+description: Use instead of superpowers:writing-plans when working in an ai-board project — decomposes a spec into board tickets via 'abd ticket add' with machine-checkable acceptance_criteria, then hands off to board-execute.
 ---
 
 # Writing Plans
@@ -15,7 +15,7 @@ Assume they are a skilled developer, but know almost nothing about our toolset o
 
 **Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
 
-**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `abd add-ticket` (see Output Target below). The board is the single source of truth; `spec_id` is passed in by the brainstorming skill.
+**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `abd ticket add` (see Output Target below). The board is the single source of truth; `spec_id` is passed in by the brainstorming skill.
 
 ## Scope Check
 
@@ -37,7 +37,7 @@ This structure informs the task decomposition. Each task should produce self-con
 This skill does NOT write a `plan` file. For each task you would have written, call the `abd` CLI once:
 
 ```bash
-abd add-ticket --spec-id <spec_id> \
+abd ticket add --spec-id <spec_id> \
   --title "<task component name>" \
   --description "<complete self-contained implementation instructions>" \
   --criteria '<JSON array of exact commands + expected result>'
