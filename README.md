@@ -15,6 +15,9 @@ planning work — clarifying intent, writing the design, and breaking it into
 tickets with acceptance criteria — then let smaller, cheaper agents pick up
 those bounded tickets one at a time.
 
+One spec owns one logical board of self-contained tickets. A single SQLite
+database may contain multiple specs.
+
 ---
 
 ## How it works
@@ -22,17 +25,22 @@ those bounded tickets one at a time.
 Three AI skills drive the workflow:
 
 **1. `board-brainstorming`** — Explores your idea, asks clarifying questions,
-writes a spec, saves it to the board as a design.
+writes a spec, and saves it to the board.
 
-**2. `board-planning`** — Reads the design, breaks it into tickets. Each ticket
-has a `spec` (what to build) and `acceptance_criteria` (real shell commands that
-must pass — never prose). Opens the live board so you can review every ticket
-before execution starts.
+**2. `board-planning`** — Reads the spec and breaks it into self-contained
+tickets. Each ticket has a `description` (what to build) and
+`acceptance_criteria` (real shell commands that must pass — never prose). Opens
+the live board so you can review every ticket before execution starts.
 
 **3. `board-execute`** — Works through tickets in order. For each ticket it
-dispatches a fresh sub-agent (clean context, no baggage from prior tickets),
-runs the acceptance criteria for real, and marks the ticket done. If something
-fails three times or hits genuine ambiguity, it stops and asks you.
+uses the complete ticket returned by `abd next`, dispatches a fresh sub-agent
+(clean context, no baggage from prior tickets), runs the acceptance criteria
+for real, and marks the ticket done. The normal execution loop does not fetch
+the parent spec. If something fails three times or hits genuine ambiguity, it
+stops and asks you.
+
+`using-ai-board` is the bootstrap skill that establishes this three-skill
+workflow and its recovery rules.
 
 You can watch the whole thing on the live board at `http://localhost:4141`.
 
@@ -91,33 +99,33 @@ abd serve   # http://localhost:4141
 ```
 
 Five columns: `queued → implementing → verifying → done` + `needs_human`.
-Cards move across as the agent works. Click any card to see its spec, acceptance
-criteria, and (if blocked) the question the agent is asking. The `needs_human`
-column is where you intervene.
+Cards move across as the agent works. Click any card to see its description,
+acceptance criteria, and (if blocked) the question the agent is asking. The
+`needs_human` column is where you intervene.
 
-Click any card to drill into its full spec and criteria. Design docs are
-editable directly from the board.
+Click any card to drill into its full description and criteria. Specs and ticket
+content are editable directly from the board.
 
 ---
 
 ## `abd` CLI reference
 
-The `abd` binary is the only thing that touches the database. All commands emit
-JSON to stdout; errors go to stderr as `{"ok":false,"error":"..."}` with a
-non-zero exit code.
+The `abd` binary is the only thing that touches the database. Commands emit JSON
+to stdout except `abd spec get`, which emits raw spec content. Errors go to
+stderr as `{"ok":false,"error":"..."}` with a non-zero exit code.
 
 | Command | What it does |
 |---|---|
 | `abd init` | Create the schema (idempotent) |
-| `abd create-design --title T (--file PATH \| --stdin)` | Save a design spec |
-| `abd add-ticket --design ID --title T --spec "..." --criteria '[...]'` | Add a ticket |
-| `abd next [--design ID]` | Atomically claim the oldest queued ticket |
-| `abd show TICKET_ID` | Full ticket including the parent design spec |
-| `abd list --design ID` | All tickets for a design |
+| `abd spec add --title T (--file PATH \| --stdin)` | Save a spec |
+| `abd spec list` | List all specs (JSON array, newest first) |
+| `abd spec get SPEC_ID` | Print the raw spec content |
+| `abd add-ticket --spec-id ID --title T --description "..." --criteria '[...]'` | Add a self-contained ticket |
+| `abd next [--spec-id ID]` | Atomically claim the oldest queued ticket |
+| `abd show TICKET_ID` | Show ticket JSON only |
+| `abd list --spec-id ID` | List all tickets for a spec |
 | `abd update TICKET_ID --status S [--context "..."] [--bump-attempts]` | Update a ticket |
-| `abd needs-human [--design ID]` | Get the blocked ticket, if any |
-| `abd design list` | List all designs (JSON array, newest first) |
-| `abd design show DESIGN_ID` | Print the raw design spec (pipe to `glow`/`less`) |
+| `abd needs-human [--spec-id ID]` | Get the blocked ticket, if any |
 | `abd serve [--port 4141]` | Start the live board UI (idempotent) |
 
 `$BOARD_DB` sets the database path (default `./board.db`).

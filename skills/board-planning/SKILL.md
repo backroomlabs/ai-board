@@ -11,11 +11,11 @@ Write comprehensive implementation plans assuming the engineer has zero context 
 
 Assume they are a skilled developer, but know almost nothing about our toolset or problem domain. Assume they don't know good test design very well.
 
-**Announce at start:** "I'm using the writing-plans skill to create the implementation plan."
+**Announce at start:** "I'm using the board-planning skill to create the implementation plan."
 
 **Context:** If working in an isolated worktree, it should have been created via the `superpowers:using-git-worktrees` skill at execution time.
 
-**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `abd add-ticket` (see Output Target below). The board is the single source of truth; `design_id` is passed in by the brainstorming skill.
+**Output:** This skill does NOT write a plan file. Each task is emitted as a board ticket via `abd add-ticket` (see Output Target below). The board is the single source of truth; `spec_id` is passed in by the brainstorming skill.
 
 ## Scope Check
 
@@ -37,16 +37,22 @@ This structure informs the task decomposition. Each task should produce self-con
 This skill does NOT write a `plan` file. For each task you would have written, call the `abd` CLI once:
 
 ```bash
-abd add-ticket --design <design_id> \
+abd add-ticket --spec-id <spec_id> \
   --title "<task component name>" \
-  --spec "<the Files: block + complete implementation steps and code>" \
+  --description "<complete self-contained implementation instructions>" \
   --criteria '<JSON array of exact commands + expected result>'
 ```
 
 Mapping:
 - `--title` ← the task/component name.
-- `--spec` ← the `Files:` block plus the full implementation steps and code (the same bite-sized, no-placeholder content you'd otherwise have written into a plan file).
+- `--description` ← the `Files:` block plus the full implementation steps and code (the same bite-sized, no-placeholder content you'd otherwise have written into a plan file).
 - `--criteria` ← the verification steps as a **JSON array of checkable commands**, each ending in its expected result, e.g. `["pytest tests/auth.py::test_x -v => PASS", "tsc --noEmit => clean"]`.
+
+Every ticket description is sufficient for a fresh execution agent:
+
+- Include exact files, complete implementation steps, relevant interfaces, and all constraints needed for that ticket.
+- A ticket may build on code committed by earlier tickets, but must not require reading another ticket's text or the parent spec.
+- Each ticket should produce one reviewable commit.
 
 Run the **Self-Review** checklist BEFORE emitting any tickets.
 
@@ -153,8 +159,8 @@ abd serve --port 4141 &
 
 Then tell the user:
 
-> "N tickets are queued on the board. Open http://localhost:4141 to review the plan — click each card to see the spec and acceptance criteria. Let me know when you're happy with it, or tell me what to change."
+> "N tickets are queued on the board. Open http://localhost:4141 to review the plan — click each card to see its description and acceptance criteria. Let me know when you're happy with it, or tell me what to change."
 
-**2. Wait for explicit approval.** Do not invoke `board-execute` until the user says yes. If they request changes, edit the affected tickets (`abd update`) or add/remove tickets, then ask them to re-check the board.
+**2. Wait for explicit approval.** Do not invoke `board-execute` until the user says yes. If they request content changes, direct them to edit the affected tickets in the board UI, then ask them to re-check the board. Do not claim that ticket deletion is supported.
 
-**3. On approval, invoke `board-execute`** with `design_id`. There is no other execution path.
+**3. On approval, invoke `board-execute`** with `spec_id`. There is no other execution path.

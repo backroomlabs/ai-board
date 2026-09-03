@@ -40,10 +40,9 @@ impl FromStr for Status {
 #[derive(Debug, Serialize)]
 pub struct Ticket {
     pub id: i64,
-    pub design_id: i64,
+    pub spec_id: i64,
     pub title: String,
-    pub spec: String,
-    /// Parsed JSON array of acceptance criteria.
+    pub description: String,
     pub acceptance_criteria: serde_json::Value,
     pub status: String,
     pub attempts: i64,

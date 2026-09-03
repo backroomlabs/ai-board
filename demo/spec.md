@@ -1,9 +1,9 @@
-# Greeter — Demo Design
+# Greeter — Demo Spec
 
 A tiny shell `greet.sh` built incrementally to exercise the board end-to-end.
 
 This spec is canned for the demo: in a real run the `brainstorming` skill would
-produce it and `writing-plans` would emit the tickets. Here the demo script
+produce it and `board-planning` would emit the tickets. Here the demo script
 stands in for those LLM steps so the board, the verify loop, the `needs_human`
 escalation, and the live UI can be shown deterministically.
 

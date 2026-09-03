@@ -5,10 +5,10 @@ description: Use after board-planning has emitted tickets — runs the sequentia
 
 # Execute Ticket Loop
 
-Drive a design's tickets to `done` using the board as the single source of
+Drive a spec's tickets to `done` using the board as the single source of
 truth and the harness's native sub-agent dispatch. One worker, sequential.
 
-You are given a `design_id`. **The user has already reviewed and approved the
+You are given a `spec_id`. **The user has already reviewed and approved the
 ticket plan** (that gate lives in `board-planning`). Do not re-ask for approval
 — start the loop immediately.
 
@@ -25,13 +25,13 @@ ticket plan** (that gate lives in `board-planning`). Do not re-ask for approval
 
 ## The Loop
 
-### 0. Startup: resume any stranded question FIRST
+### 0. Startup: recover stranded tickets
 
 Before claiming new work, check for a question left by a previous (possibly
 crashed) session:
 
 ```bash
-abd needs-human --design <design_id>
+abd needs-human --spec-id <spec_id>
 ```
 
 If it returns a ticket, surface its `human_context` conversationally — assume the
@@ -43,32 +43,41 @@ persisted. Once answered, requeue the ticket and continue:
 abd update <ticket_id> --status queued
 ```
 
+Also recover work stranded in `implementing` by a crashed session:
+
+```bash
+abd list --spec-id <spec_id>
+```
+
+Find every ticket with `"status": "implementing"` and reset it before claiming
+new work:
+
+```bash
+abd update <ticket_id> --status queued
+```
+
+The abandoned worker did not finish, so the ticket must be reclaimed and
+implemented from scratch. Both recovery checks belong to this startup step and
+run on every invocation.
+
 ### 1. Claim the next ticket
 
 ```bash
-abd next --design <design_id>
+abd next --spec-id <spec_id>
 ```
 
 If the result is `{"ticket": null}`, the board is drained — all tickets are
 `done`. Stop; report completion. Otherwise you now hold a ticket in
 `implementing` (the claim is atomic).
 
-### 2. Read the full ticket
+### 2. Dispatch a FRESH sub-agent to implement
 
-```bash
-abd show <ticket_id>
-```
+The successful `abd next` response is the complete self-contained ticket. Treat
+that response as the complete ticket and dispatch a new sub-agent (native
+harness dispatch) with it. Do not fetch the parent spec. A fresh context per
+ticket is the point — do not implement inline in the orchestrator's context.
 
-This includes the parent `design_md` for context, the `spec`, and the
-`acceptance_criteria` array.
-
-### 3. Dispatch a FRESH sub-agent to implement
-
-Dispatch a new sub-agent (native harness dispatch) to implement the ticket per
-its `spec`. A fresh context per ticket is the point — do not implement inline in
-the orchestrator's context.
-
-### 4. Verify — run the acceptance_criteria
+### 3. Verify — run the acceptance_criteria
 
 **First, immediately call this — before running any criteria:**
 
@@ -93,7 +102,8 @@ deterministic check IS the review; there is no LLM reviewer in v1.
   abd update <ticket_id> --status implementing --bump-attempts
   ```
 
-  Retry from step 3 (dispatch a fresh sub-agent with the failure context).
+  Retry from step 2. Dispatch a fresh sub-agent with the same ticket
+  description plus the failed command and its observed output.
 
 - **3rd failure, OR genuine ambiguity** → write a self-contained question and
   stop:
@@ -105,7 +115,7 @@ deterministic check IS the review; there is no LLM reviewer in v1.
 
   Then STOP and surface the question to the human.
 
-### 5. Loop
+### 4. Loop
 
 Return to step 1 until `abd next` yields `{"ticket": null}`.
 

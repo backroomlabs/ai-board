@@ -1,6 +1,6 @@
 ---
 name: board-brainstorming
-description: "Use instead of superpowers:brainstorming when working in an ai-board project — explores user intent and design, then persists the approved spec to the SQLite board via 'abd create-design' before handing off to board-planning."
+description: "Use instead of superpowers:brainstorming when working in an ai-board project — explores user intent and design, then persists the approved spec to the SQLite board via 'abd spec add' before handing off to board-planning."
 ---
 
 # Brainstorming Ideas Into Designs
@@ -29,8 +29,8 @@ You MUST create a task for each of these items and complete them in order:
 6. **Write design doc** — save to `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` and commit
 7. **Spec self-review** — quick inline check for placeholders, contradictions, ambiguity, scope (see below)
 8. **User reviews written spec** — ask user to review the spec file before proceeding
-9. **Persist the design to the board** — after the spec is written, committed, AND user-approved, call `abd create-design --title <title> --file <spec path>` and capture the returned `design_id`.
-10. **Transition to implementation** — invoke the writing-plans skill, passing `design_id`, to create the tickets.
+9. **Persist the spec to the board** — after the spec is written, committed, AND user-approved, call `abd spec add --title "<title>" --file <spec path>` and capture `spec_id` from the returned JSON.
+10. **Transition to implementation** — invoke the `board-planning` skill, passing `spec_id`, to create the tickets.
 
 ## Process Flow
 
@@ -46,7 +46,8 @@ digraph brainstorming {
     "Write design doc" [shape=box];
     "Spec self-review\n(fix inline)" [shape=box];
     "User reviews spec?" [shape=diamond];
-    "Invoke writing-plans skill" [shape=doublecircle];
+    "Persist spec with abd spec add\ncapture spec_id" [shape=box];
+    "Invoke board-planning skill" [shape=doublecircle];
 
     "Explore project context" -> "Visual questions ahead?";
     "Visual questions ahead?" -> "Offer Visual Companion\n(own message, no other content)" [label="yes"];
@@ -60,11 +61,12 @@ digraph brainstorming {
     "Write design doc" -> "Spec self-review\n(fix inline)";
     "Spec self-review\n(fix inline)" -> "User reviews spec?";
     "User reviews spec?" -> "Write design doc" [label="changes requested"];
-    "User reviews spec?" -> "Invoke writing-plans skill" [label="approved"];
+    "User reviews spec?" -> "Persist spec with abd spec add\ncapture spec_id" [label="approved"];
+    "Persist spec with abd spec add\ncapture spec_id" -> "Invoke board-planning skill";
 }
 ```
 
-**The terminal state is invoking writing-plans.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is writing-plans.
+**The terminal state is invoking `board-planning`.** Do NOT invoke frontend-design, mcp-builder, or any other implementation skill. The ONLY skill you invoke after brainstorming is `board-planning`.
 
 ## The Process
 
@@ -133,14 +135,15 @@ Wait for the user's response. If they request changes, make them and re-run the 
 
 **Implementation:**
 
-- The design is approved, written, and committed. Persist it to the board so it becomes the single source of truth:
-  - Run `abd create-design --title "<title>" --file <spec path>` and capture `design_id` from the JSON.
-  - The design blob is stored once; re-running brainstorm creates a NEW design, never appends.
+- The specification is approved, written, and committed. Persist it to the board so it becomes the single source of truth:
+  - Run `abd spec add --title "<title>" --file <spec path>`.
+  - Capture `spec_id` from the returned JSON.
+  - The spec content is stored once; re-running brainstorm creates a NEW spec, never appends.
 - Start the live board UI (idempotent — safe if already running):
   ```bash
   abd serve --port 4141 &
   ```
-- Invoke the `board-planning` skill and pass it `design_id`. Do NOT invoke any other skill. `board-planning` is the next step.
+- Invoke the `board-planning` skill and pass it `spec_id`. Do NOT invoke any other skill. `board-planning` is the next step.
 
 ## Key Principles
 
@@ -168,4 +171,4 @@ A browser-based companion for showing mockups, diagrams, and visual options duri
 A question about a UI topic is not automatically a visual question. "What does personality mean in this context?" is a conceptual question — use the terminal. "Which wizard layout works better?" is a visual question — use the browser.
 
 If they agree to the companion, read the detailed guide before proceeding:
-`skills/brainstorming/visual-companion.md`
+`skills/board-brainstorming/visual-companion.md`

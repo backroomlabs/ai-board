@@ -13,13 +13,13 @@ fn html_header() -> Header {
     Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap()
 }
 
-/// Parse `design` out of a `/api/board?design=N` query string.
-fn query_design(url: &str) -> Option<i64> {
-    let q = url.split_once('?')?.1;
-    q.split('&')
-        .filter_map(|kv| kv.split_once('='))
-        .find(|(k, _)| *k == "design")
-        .and_then(|(_, v)| v.parse().ok())
+fn query_spec_id(url: &str) -> Option<i64> {
+    let query = url.split_once('?')?.1;
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(key, _)| *key == "spec_id")
+        .and_then(|(_, value)| value.parse().ok())
 }
 
 fn request_path(url: &str) -> &str {
@@ -52,21 +52,19 @@ fn route_json(url: &str) -> Result<serde_json::Value> {
     let conn = db::open()?;
     let path = request_path(url);
     match path {
-        "/api/designs" => commands::designs_json(&conn),
+        "/api/specs" => commands::specs_json(&conn),
         "/api/board" => {
-            let id = query_design(url).ok_or_else(|| anyhow::anyhow!("missing ?design=<id>"))?;
-            commands::board_json(&conn, id)
+            let spec_id =
+                query_spec_id(url).ok_or_else(|| anyhow::anyhow!("missing ?spec_id=<id>"))?;
+            commands::board_json(&conn, spec_id)
         }
-        p if p.starts_with("/api/ticket/") => {
-            let id = parse_prefixed_id(p, "/api/ticket/", "ticket")?;
+        path if path.starts_with("/api/ticket/") => {
+            let id = parse_prefixed_id(path, "/api/ticket/", "ticket")?;
             commands::ticket_json(&conn, id)
         }
-        p if p.starts_with("/api/design/") => {
-            let id: i64 = p
-                .trim_start_matches("/api/design/")
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid design id"))?;
-            commands::design_md_json(&conn, id)
+        path if path.starts_with("/api/spec/") => {
+            let id = parse_prefixed_id(path, "/api/spec/", "spec")?;
+            commands::spec_json(&conn, id)
         }
         _ => anyhow::bail!("not found"),
     }
@@ -86,11 +84,15 @@ fn patch_ticket_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
             );
         }
     };
-    let spec = match parsed["spec"].as_str() {
-        Some(v) => v,
+    let description = match parsed["description"].as_str() {
+        Some(value) => value,
         None => {
             return (
-                serde_json::json!({"ok": false, "error": "missing field: spec"}).to_string(),
+                serde_json::json!({
+                    "ok": false,
+                    "error": "missing field: description"
+                })
+                .to_string(),
                 400,
             );
         }
@@ -106,12 +108,48 @@ fn patch_ticket_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
         }
     };
 
-    match commands::update_ticket_content(id, title, spec, acceptance_criteria) {
+    match commands::update_ticket_content(id, title, description, acceptance_criteria) {
         Ok(v) => (v.to_string(), 200),
         Err(e) => {
             let msg = e.to_string();
             let code = api_error_status(&msg);
-            (serde_json::json!({"ok": false, "error": msg}).to_string(), code)
+            (
+                serde_json::json!({"ok": false, "error": msg}).to_string(),
+                code,
+            )
+        }
+    }
+}
+
+fn patch_spec_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
+    let title = match parsed["title"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: title"}).to_string(),
+                400,
+            );
+        }
+    };
+    let content = match parsed["content"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: content"}).to_string(),
+                400,
+            );
+        }
+    };
+
+    match commands::update_spec(id, title, content) {
+        Ok(value) => (value.to_string(), 200),
+        Err(error) => {
+            let message = error.to_string();
+            let code = api_error_status(&message);
+            (
+                serde_json::json!({"ok": false, "error": message}).to_string(),
+                code,
+            )
         }
     }
 }
@@ -136,16 +174,21 @@ pub fn serve(port: u16) -> Result<()> {
                 Err(e) => {
                     let body = serde_json::json!({"ok": false, "error": e.to_string()}).to_string();
                     let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
                     );
                     continue;
                 }
             };
             let mut raw = String::new();
             if request.as_reader().read_to_string(&mut raw).is_err() {
-                let body = serde_json::json!({"ok": false, "error": "failed to read request body"}).to_string();
+                let body = serde_json::json!({"ok": false, "error": "failed to read request body"})
+                    .to_string();
                 let _ = request.respond(
-                    Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    Response::from_string(body)
+                        .with_header(json_header())
+                        .with_status_code(400),
                 );
                 continue;
             }
@@ -154,78 +197,64 @@ pub fn serve(port: u16) -> Result<()> {
                 Err(e) => {
                     let body = serde_json::json!({"ok": false, "error": e}).to_string();
                     let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
                     );
                     continue;
                 }
             };
             let (body, code) = patch_ticket_response(id, &parsed);
             let _ = request.respond(
-                Response::from_string(body).with_header(json_header()).with_status_code(code),
+                Response::from_string(body)
+                    .with_header(json_header())
+                    .with_status_code(code),
             );
             continue;
         }
 
-        if method == Method::Patch && path.starts_with("/api/design/") {
-            let id_str = path.trim_start_matches("/api/design/");
-            let id: i64 = match id_str.parse() {
-                Ok(v) => v,
-                Err(_) => {
-                    let body = serde_json::json!({"ok": false, "error": "invalid design id"}).to_string();
+        if method == Method::Patch && path.starts_with("/api/spec/") {
+            let id = match parse_prefixed_id(path, "/api/spec/", "spec") {
+                Ok(id) => id,
+                Err(error) => {
+                    let body =
+                        serde_json::json!({"ok": false, "error": error.to_string()}).to_string();
                     let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
                     );
                     continue;
                 }
             };
             let mut raw = String::new();
             if request.as_reader().read_to_string(&mut raw).is_err() {
-                let body = serde_json::json!({"ok": false, "error": "failed to read request body"}).to_string();
+                let body = serde_json::json!({"ok": false, "error": "failed to read request body"})
+                    .to_string();
                 let _ = request.respond(
-                    Response::from_string(body).with_header(json_header()).with_status_code(400),
+                    Response::from_string(body)
+                        .with_header(json_header())
+                        .with_status_code(400),
                 );
                 continue;
             }
-            let parsed: serde_json::Value = match parse_json_body(&raw) {
-                Ok(v) => v,
-                Err(e) => {
-                    let body = serde_json::json!({"ok": false, "error": e}).to_string();
+            let parsed = match parse_json_body(&raw) {
+                Ok(value) => value,
+                Err(error) => {
+                    let body = serde_json::json!({"ok": false, "error": error}).to_string();
                     let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
                     );
                     continue;
                 }
             };
-            let title = match parsed["title"].as_str() {
-                Some(v) => v,
-                None => {
-                    let body = serde_json::json!({"ok": false, "error": "missing field: title"}).to_string();
-                    let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
-                    );
-                    continue;
-                }
-            };
-            let design_md = match parsed["design_md"].as_str() {
-                Some(v) => v,
-                None => {
-                    let body = serde_json::json!({"ok": false, "error": "missing field: design_md"}).to_string();
-                    let _ = request.respond(
-                        Response::from_string(body).with_header(json_header()).with_status_code(400),
-                    );
-                    continue;
-                }
-            };
-            let (body, code) = match commands::update_design(id, title, design_md) {
-                Ok(v) => (v.to_string(), 200),
-                Err(e) => {
-                    let msg = e.to_string();
-                    let code = if msg.contains("not found") { 404 } else { 400 };
-                    (serde_json::json!({"ok": false, "error": msg}).to_string(), code)
-                }
-            };
+            let (body, code) = patch_spec_response(id, &parsed);
             let _ = request.respond(
-                Response::from_string(body).with_header(json_header()).with_status_code(code),
+                Response::from_string(body)
+                    .with_header(json_header())
+                    .with_status_code(code),
             );
             continue;
         }
@@ -247,7 +276,10 @@ pub fn serve(port: u16) -> Result<()> {
                 Ok(v) => (v.to_string(), 200),
                 Err(e) => {
                     let msg = e.to_string();
-                    (serde_json::json!({"ok": false, "error": msg}).to_string(), api_error_status(&msg))
+                    (
+                        serde_json::json!({"ok": false, "error": msg}).to_string(),
+                        api_error_status(&msg),
+                    )
                 }
             };
             let resp = Response::from_string(body)
@@ -268,6 +300,18 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
 
+    #[test]
+    fn embedded_ui_uses_spec_routes_and_description() {
+        assert!(INDEX_HTML.contains("fetch(\"/api/specs\")"));
+        assert!(INDEX_HTML.contains("/api/board?spec_id=${id}"));
+        assert!(INDEX_HTML.contains("/api/spec/${specId}"));
+        assert!(INDEX_HTML.contains("ticket.description"));
+        assert!(INDEX_HTML.contains("const description = editorRef.current"));
+        assert!(INDEX_HTML.contains("description,"));
+        assert!(!INDEX_HTML.contains("/api/design"));
+        assert!(!INDEX_HTML.contains("ticket.spec"));
+    }
+
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
@@ -279,12 +323,14 @@ mod tests {
         let conn = db::open().unwrap();
         db::init_schema(&conn).unwrap();
         conn.execute(
-            "INSERT INTO design (title, design_md, status) VALUES ('D', 'design body', 'planning')",
+            "INSERT INTO spec (title, content, status)
+             VALUES ('S', 'spec content', 'planning')",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO ticket (design_id, title, spec, acceptance_criteria, status) \
+            "INSERT INTO ticket
+             (spec_id, title, description, acceptance_criteria, status)
              VALUES (1, 'T', 'do work', '[\"cargo test => PASS\"]', 'queued')",
             [],
         )
@@ -293,13 +339,44 @@ mod tests {
     }
 
     #[test]
-    fn route_json_returns_ticket_json() {
+    fn route_json_returns_ticket_without_parent_content() {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
-        let v = route_json("/api/ticket/1").unwrap();
-        assert_eq!(v["id"], 1);
-        assert_eq!(v["title"], "T");
-        assert_eq!(v["design_md"], "design body");
+        let value = route_json("/api/ticket/1").unwrap();
+        assert_eq!(value["spec_id"], 1);
+        assert_eq!(value["description"], "do work");
+        assert!(value.get("content").is_none());
+    }
+
+    #[test]
+    fn route_json_returns_specs_and_selected_board() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+
+        let specs = route_json("/api/specs").unwrap();
+        assert_eq!(specs[0]["title"], "S");
+
+        let board = route_json("/api/board?spec_id=1").unwrap();
+        assert_eq!(board["spec"]["id"], 1);
+        assert_eq!(board["tickets"][0]["description"], "do work");
+    }
+
+    #[test]
+    fn route_json_returns_structured_spec() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let value = route_json("/api/spec/1").unwrap();
+        assert_eq!(value["title"], "S");
+        assert_eq!(value["content"], "spec content");
+    }
+
+    #[test]
+    fn old_design_routes_are_not_found() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        assert!(route_json("/api/designs").is_err());
+        assert!(route_json("/api/design/1").is_err());
+        assert!(route_json("/api/board?design=1").is_err());
     }
 
     #[test]
@@ -327,35 +404,35 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Updated",
-            "spec": "updated spec",
+            "description": "updated description",
             "acceptance_criteria": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
-        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
 
         assert_eq!(code, 200);
-        assert_eq!(v["title"], "Updated");
-        assert_eq!(v["spec"], "updated spec");
-        assert_eq!(v["acceptance_criteria"], serde_json::json!([]));
+        assert_eq!(value["title"], "Updated");
+        assert_eq!(value["description"], "updated description");
+        assert_eq!(value["acceptance_criteria"], serde_json::json!([]));
     }
 
     #[test]
-    fn patch_ticket_response_rejects_empty_spec() {
+    fn patch_ticket_response_rejects_empty_description() {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Valid title",
-            "spec": "   ",
+            "description": "   ",
             "acceptance_criteria": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
-        let v: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
 
         assert_eq!(code, 400);
-        assert_eq!(v["ok"], false);
-        assert_eq!(v["error"], "spec must not be empty");
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"], "description must not be empty");
     }
 
     #[test]
@@ -364,7 +441,7 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Valid title",
-            "spec": "Valid spec",
+            "description": "Valid description",
             "acceptance_criteria": {"bad": true}
         });
 
@@ -381,7 +458,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
         let payload = serde_json::json!({
-            "spec": "updated spec",
+            "description": "updated description",
             "acceptance_criteria": []
         });
 
@@ -394,12 +471,29 @@ mod tests {
     }
 
     #[test]
+    fn patch_ticket_response_rejects_missing_description() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let payload = serde_json::json!({
+            "title": "Updated",
+            "acceptance_criteria": []
+        });
+
+        let (body, code) = patch_ticket_response(1, &payload);
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+        assert_eq!(code, 400);
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["error"], "missing field: description");
+    }
+
+    #[test]
     fn patch_ticket_response_rejects_unknown_ticket() {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Updated",
-            "spec": "updated spec",
+            "description": "updated description",
             "acceptance_criteria": []
         });
 
@@ -417,5 +511,21 @@ mod tests {
         let _dir = with_temp_db();
         let msg = route_json("/api/ticket/999").unwrap_err().to_string();
         assert_eq!(api_error_status(&msg), 404);
+    }
+
+    #[test]
+    fn patch_spec_response_updates_title_and_content() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let payload = serde_json::json!({
+            "title": "Updated",
+            "content": "# Updated"
+        });
+
+        let (body, code) = patch_spec_response(1, &payload);
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(code, 200);
+        assert_eq!(value["title"], "Updated");
+        assert_eq!(value["content"], "# Updated");
     }
 }

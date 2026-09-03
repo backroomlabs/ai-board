@@ -22,8 +22,8 @@
   dialog pre { white-space:pre-wrap; background:#11141d; padding:10px; border-radius:6px; overflow:auto; max-height:60vh; }
   dialog button.close-btn { float:right; background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; }
   .crit { margin:0; padding-left:18px; }
-  #design-btn { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:13px; }
-  #design-btn:hover { border-color:var(--accent); color:var(--accent); }
+  #spec-btn { background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; padding:4px 10px; cursor:pointer; font-size:13px; }
+  #spec-btn:hover { border-color:var(--accent); color:var(--accent); }
   .edit-page { display:flex; flex-direction:column; height:100vh; }
   .edit-header { padding:10px 16px; display:flex; gap:10px; align-items:center; border-bottom:1px solid #2a2f3d; background:var(--bg); }
   .edit-header input { flex:1; background:#11141d; color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:6px 10px; font-size:15px; font-weight:600; }
@@ -171,8 +171,8 @@ function DetailModal({ ticket, onClose }) {
         <button class="close-btn" style="margin-left:8px" onClick=${handleEdit}>Edit</button>
         <button class="close-btn" onClick=${onClose}>close</button>
         <h3>#${ticket.id} ${ticket.title} — ${ticket.status}</h3>
-        <h4>Spec</h4>
-        <pre>${ticket.spec}</pre>
+        <h4>Description</h4>
+        <pre>${ticket.description}</pre>
         <h4>Acceptance criteria</h4>
         <ul class="crit">
           ${(ticket.acceptance_criteria || []).map((c, i) => html`<li key=${i}><code>${String(c)}</code></li>`)}
@@ -183,10 +183,10 @@ function DetailModal({ ticket, onClose }) {
   `;
 }
 
-function DesignModal({ data, onClose }) {
+function SpecModal({ data, onClose }) {
   function handleEdit() {
     onClose();
-    window.location.hash = `#/edit/${data.id}`;
+    window.location.hash = `#/spec/${data.id}/edit`;
   }
 
   return html`
@@ -195,14 +195,46 @@ function DesignModal({ data, onClose }) {
         <button class="close-btn" style="margin-left:8px" onClick=${handleEdit}>Edit ✏️</button>
         <button class="close-btn" onClick=${onClose}>close</button>
         <h3>${data.title} — ${data.status}</h3>
-        <pre>${data.design_md}</pre>
+        <pre>${data.content}</pre>
       `}
     </${Modal}>
   `;
 }
 
-function EditDesignPage({ designId }) {
-  const [design, setDesign] = useState(null);
+/* editor-request-helpers:start */
+function specEditorLoadRequest(specId) {
+  return { url: `/api/spec/${specId}` };
+}
+
+function specEditorUpdateRequest(specId, title, content) {
+  return {
+    url: `/api/spec/${specId}`,
+    options: {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content }),
+    },
+  };
+}
+
+function ticketEditorLoadRequest(ticketId) {
+  return { url: `/api/ticket/${ticketId}` };
+}
+
+function ticketEditorUpdateRequest(ticketId, title, description, acceptance_criteria) {
+  return {
+    url: `/api/ticket/${ticketId}`,
+    options: {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, description, acceptance_criteria }),
+    },
+  };
+}
+/* editor-request-helpers:end */
+
+function EditSpecPage({ specId }) {
+  const [spec, setSpec] = useState(null);
   const [title, setTitle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -210,42 +242,51 @@ function EditDesignPage({ designId }) {
   const editorRef = useRef(null);
 
   useEffect(() => {
-    fetch(`/api/design/${designId}`)
-      .then(r => { if (!r.ok) throw new Error(`design ${designId} not found`); return r.json(); })
-      .then(d => { setDesign(d); setTitle(d.title); })
-      .catch(e => setError(e.message));
-  }, [designId]);
+    const request = specEditorLoadRequest(specId);
+    fetch(request.url, request.options)
+      .then(response => {
+        if (!response.ok) throw new Error(`spec ${specId} not found`);
+        return response.json();
+      })
+      .then(value => {
+        setSpec(value);
+        setTitle(value.title);
+      })
+      .catch(error => setError(error.message));
+  }, [specId]);
 
   useEffect(() => {
-    if (!design || !textareaRef.current || editorRef.current) return;
+    if (!spec || !textareaRef.current || editorRef.current) return;
     editorRef.current = new EasyMDE({
       element: textareaRef.current,
-      initialValue: design.design_md,
+      initialValue: spec.content,
       spellChecker: false,
       autofocus: true,
       autoDownloadFontAwesome: false,
     });
     return () => {
-      if (editorRef.current) { editorRef.current.toTextArea(); editorRef.current = null; }
+      if (editorRef.current) {
+        editorRef.current.toTextArea();
+        editorRef.current = null;
+      }
     };
-  }, [design]);
+  }, [spec]);
 
   async function handleSave() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`/api/design/${designId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, design_md: editorRef.current.value() }),
-      });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(j.error || res.statusText);
+      const request = specEditorUpdateRequest(specId, title, editorRef.current.value());
+      const response = await fetch(request.url, request.options);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({
+          error: response.statusText,
+        }));
+        throw new Error(body.error || response.statusText);
       }
       window.location.hash = '#/';
-    } catch (e) {
-      setError(e.message);
+    } catch (error) {
+      setError(error.message);
     } finally {
       setSaving(false);
     }
@@ -253,13 +294,13 @@ function EditDesignPage({ designId }) {
 
   function handleCancel() { window.location.hash = '#/'; }
 
-  if (error && !design) return html`
+  if (error && !spec) return html`
     <div style="padding:24px">
       <p style="color:var(--warn)">${error}</p>
       <button class="btn-secondary" onClick=${() => { window.location.hash = '#/'; }}>← Back</button>
     </div>
   `;
-  if (!design) return html`<div style="padding:24px;color:var(--muted)">Loading…</div>`;
+  if (!spec) return html`<div style="padding:24px;color:var(--muted)">Loading…</div>`;
 
   return html`
     <div class="edit-page">
@@ -269,7 +310,7 @@ function EditDesignPage({ designId }) {
           type="text"
           value=${title}
           onInput=${e => setTitle(e.target.value)}
-          placeholder="Design title"
+          placeholder="Spec title"
         />
         ${error && html`<span class="edit-error">${error}</span>`}
         <button class="btn-secondary" onClick=${handleCancel}>Cancel</button>
@@ -294,7 +335,8 @@ function EditTicketPage({ ticketId }) {
   const editorRef = useRef(null);
 
   useEffect(() => {
-    fetch(`/api/ticket/${ticketId}`)
+    const request = ticketEditorLoadRequest(ticketId);
+    fetch(request.url, request.options)
       .then(r => { if (!r.ok) throw new Error(`ticket ${ticketId} not found`); return r.json(); })
       .then(t => {
         setTicket(t);
@@ -308,7 +350,7 @@ function EditTicketPage({ ticketId }) {
     if (!ticket || !textareaRef.current || editorRef.current) return;
     editorRef.current = new EasyMDE({
       element: textareaRef.current,
-      initialValue: ticket.spec,
+      initialValue: ticket.description,
       spellChecker: false,
       autofocus: true,
       autoDownloadFontAwesome: false,
@@ -331,13 +373,13 @@ function EditTicketPage({ ticketId }) {
   }
 
   async function handleSave() {
-    const spec = editorRef.current ? editorRef.current.value() : '';
+    const description = editorRef.current ? editorRef.current.value() : '';
     if (title.trim() === '') {
       setError('title must not be empty');
       return;
     }
-    if (spec.trim() === '') {
-      setError('spec must not be empty');
+    if (description.trim() === '') {
+      setError('description must not be empty');
       return;
     }
 
@@ -345,11 +387,13 @@ function EditTicketPage({ ticketId }) {
     setError(null);
     try {
       const acceptance_criteria = criteria.filter(c => c.trim() !== '');
-      const res = await fetch(`/api/ticket/${ticketId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, spec, acceptance_criteria }),
-      });
+      const request = ticketEditorUpdateRequest(
+        ticketId,
+        title,
+        description,
+        acceptance_criteria,
+      );
+      const res = await fetch(request.url, request.options);
       if (!res.ok) {
         const j = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(j.error || res.statusText);
@@ -414,15 +458,15 @@ function EditTicketPage({ ticketId }) {
 }
 
 function App() {
-  const [designs, setDesigns] = useState([]);
-  const [currentDesign, setCurrentDesign] = useState(null);
+  const [specs, setSpecs] = useState([]);
+  const [currentSpec, setCurrentSpec] = useState(null);
   const [tickets, setTickets] = useState([]);
   const [status, setStatus] = useState("");
   const [detailId, setDetailId] = useState(null);
-  const [designData, setDesignData] = useState(null);
+  const [specData, setSpecData] = useState(null);
   const [hash, setHash] = useState(window.location.hash);
 
-  const designRef = useRef(null);
+  const specRef = useRef(null);
 
   useEffect(() => {
     const handler = () => setHash(window.location.hash);
@@ -430,20 +474,20 @@ function App() {
     return () => window.removeEventListener('hashchange', handler);
   }, []);
 
-  async function loadDesigns() {
-    const list = await (await fetch("/api/designs")).json();
-    setDesigns(list);
-    if (list.length && designRef.current === null) {
-      designRef.current = list[0].id;
-      setCurrentDesign(list[0].id);
+  async function loadSpecs() {
+    const list = await (await fetch("/api/specs")).json();
+    setSpecs(list);
+    if (list.length && specRef.current === null) {
+      specRef.current = list[0].id;
+      setCurrentSpec(list[0].id);
     }
   }
 
   async function pollBoard() {
     try {
-      const id = designRef.current;
+      const id = specRef.current;
       if (id === null) return;
-      const data = await (await fetch(`/api/board?design=${id}`)).json();
+      const data = await (await fetch(`/api/board?spec_id=${id}`)).json();
       if (data.tickets) setTickets(data.tickets);
       setStatus("updated " + new Date().toLocaleTimeString());
     } catch {
@@ -453,35 +497,36 @@ function App() {
 
   useEffect(() => {
     let alive = true;
-    async function tick() { if (alive) { await loadDesigns(); await pollBoard(); } }
+    async function tick() { if (alive) { await loadSpecs(); await pollBoard(); } }
     tick();
     const id = setInterval(tick, 500);
     return () => { alive = false; clearInterval(id); };
   }, []);
 
-  async function handleDesignView() {
-    if (designRef.current === null) return;
-    const data = await (await fetch(`/api/design/${designRef.current}`)).json();
-    setDesignData(data);
+  async function handleSpecView() {
+    if (specRef.current === null) return;
+    const data = await (await fetch(`/api/spec/${specRef.current}`)).json();
+    setSpecData(data);
   }
 
-  function handleDesignChange(id) {
-    designRef.current = id;
-    setCurrentDesign(id);
+  function handleSpecChange(id) {
+    specRef.current = id;
+    setCurrentSpec(id);
     setTickets([]);
     pollBoard();
   }
 
-  // Hash routing: #/edit/:id and #/ticket/:id/edit
+  // Hash routing: #/spec/:id/edit and #/ticket/:id/edit
   const ticketEditMatch = hash.match(/^#\/ticket\/(\d+)\/edit$/);
   if (ticketEditMatch) {
     const ticketId = +ticketEditMatch[1];
     return html`<${EditTicketPage} key=${ticketId} ticketId=${ticketId} />`;
   }
 
-  const editMatch = hash.match(/^#\/edit\/(\d+)$/);
-  if (editMatch) {
-    return html`<${EditDesignPage} designId=${+editMatch[1]} />`;
+  const specEditMatch = hash.match(/^#\/spec\/(\d+)\/edit$/);
+  if (specEditMatch) {
+    const specId = +specEditMatch[1];
+    return html`<${EditSpecPage} specId=${specId} />`;
   }
 
   const detailTicket = tickets.find(t => t.id === detailId) || null;
@@ -490,15 +535,15 @@ function App() {
     <${Fragment}>
       <header>
         <strong>AI Board</strong>
-        <select value=${currentDesign} onChange=${e => handleDesignChange(+e.target.value)}>
-          ${designs.map(d => html`<option key=${d.id} value=${d.id}>#${d.id} ${d.title} (${d.status})</option>`)}
+        <select value=${currentSpec} onChange=${e => handleSpecChange(+e.target.value)}>
+          ${specs.map(spec => html`<option key=${spec.id} value=${spec.id}>#${spec.id} ${spec.title} (${spec.status})</option>`)}
         </select>
-        <button id="design-btn" title="View design spec" onClick=${handleDesignView}>Design ↗</button>
+        <button id="spec-btn" title="View spec" onClick=${handleSpecView}>Spec ↗</button>
         <span style="color:var(--muted)">${status}</span>
       </header>
       <${Board} tickets=${tickets} onTicketClick=${setDetailId} />
       <${DetailModal} ticket=${detailTicket} onClose=${() => setDetailId(null)} />
-      <${DesignModal} data=${designData} onClose=${() => setDesignData(null)} />
+      <${SpecModal} data=${specData} onClose=${() => setSpecData(null)} />
     </${Fragment}>
   `;
 }

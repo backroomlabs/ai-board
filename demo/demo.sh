@@ -38,15 +38,13 @@ jget() { python3 -c 'import sys,json;d=json.load(sys.stdin);print(d.get(sys.argv
 
 # Print each acceptance-criteria command (the part before " => ") on its own line.
 criteria_cmds() {
-  board_show "$1" | python3 -c '
+  printf '%s' "$1" | python3 -c '
 import sys, json
 d = json.load(sys.stdin)
 for c in d.get("acceptance_criteria", []):
     print(str(c).split(" => ", 1)[0])
 '
 }
-
-board_show() { "$BIN" show "$1"; }
 
 banner() { printf "\n\033[1;36m== %s ==\033[0m\n" "$*"; }
 
@@ -90,7 +88,7 @@ EOF
 
 # Run every criterion for a ticket. Returns 0 only if all pass.
 verify() {
-  local id="$1" ok=0 cmd
+  local ticket="$1" ok=0 cmd
   while IFS= read -r cmd; do
     [ -z "$cmd" ] && continue
     if bash -c "$cmd"; then
@@ -99,18 +97,18 @@ verify() {
       printf "    \033[31mFAIL\033[0m %s\n" "$cmd"
       ok=1
     fi
-  done < <(criteria_cmds "$id")
+  done < <(criteria_cmds "$ticket")
   return $ok
 }
 
 # ---- the execute-ticket loop (mirrors skills/execute-ticket) --------------
 
-DID=""
+SID=""
 
 # Step 0: resume any stranded needs_human ticket first.
 startup_resume() {
   local nh id ctx
-  nh="$("$BIN" needs-human --design "$DID")"
+  nh="$("$BIN" needs-human --spec-id "$SID")"
   id="$(printf '%s' "$nh" | jget id)"
   [ -z "$id" ] && return 0
   ctx="$(printf '%s' "$nh" | jget human_context)"
@@ -128,13 +126,14 @@ startup_resume() {
 drain() {
   local t id title attempts
   while true; do
-    t="$("$BIN" next --design "$DID")"
+    t="$("$BIN" next --spec-id "$SID")"
     id="$(printf '%s' "$t" | jget id)"
     if [ -z "$id" ]; then
       banner "board drained — all tickets done"
       return 0
     fi
     title="$(printf '%s' "$t" | jget title)"
+    attempts="$(printf '%s' "$t" | jget attempts)"
     banner "claimed ticket $id: $title  (-> implementing)"
     pause
 
@@ -143,14 +142,14 @@ drain() {
       "$BIN" update "$id" --status verifying >/dev/null
       printf "  verifying ticket %s...\n" "$id"
       pause
-      if verify "$id"; then
+      if verify "$t"; then
         "$BIN" update "$id" --status done >/dev/null
         printf "  \033[32mticket %s done\033[0m\n" "$id"
         pause
         break
       fi
       "$BIN" update "$id" --status implementing --bump-attempts >/dev/null
-      attempts="$(board_show "$id" | jget attempts)"
+      attempts=$((attempts + 1))
       printf "  attempt %s failed\n" "$attempts"
       pause
       if [ "$attempts" -ge 3 ]; then
@@ -180,21 +179,21 @@ if [ "${NO_SERVE:-0}" != "1" ]; then
   sleep 2
 fi
 
-banner "create design from demo/spec.md"
-DID="$("$BIN" create-design --title "Greeter" --file "$ROOT/demo/spec.md" | jget id)"
-printf "  design_id=%s\n" "$DID"
+banner "create spec from demo/spec.md"
+SID="$("$BIN" spec add --title "Greeter" --file "$ROOT/demo/spec.md" | jget id)"
+printf "  spec_id=%s\n" "$SID"
 pause
 
-banner "writing-plans stub — emit 3 tickets with real acceptance_criteria"
-"$BIN" add-ticket --design "$DID" --title "Create greeter" \
-  --spec "Write $WORK/greet.sh that prints hello." \
-  --criteria "[\"test -f $WORK/greet.sh\", \"bash $WORK/greet.sh | grep -q '^hello$'\"]" >/dev/null
-"$BIN" add-ticket --design "$DID" --title "Greet by name" \
-  --spec "greet.sh <name> prints hello <name>." \
-  --criteria "[\"bash $WORK/greet.sh World | grep -q 'hello World'\"]" >/dev/null
-"$BIN" add-ticket --design "$DID" --title "Uppercase greeting" \
-  --spec "greet.sh <name> prints HELLO <NAME>." \
-  --criteria "[\"bash $WORK/greet.sh world | grep -q 'HELLO WORLD'\"]" >/dev/null
+banner "board-planning stub — emit 3 tickets with real acceptance_criteria"
+"$BIN" add-ticket --spec-id "$SID" --title "Create greeter" \
+  --description "Create $WORK/greet.sh as a Bash script that prints exactly hello when run without arguments." \
+  --criteria "[\"test -f $WORK/greet.sh => PASS\", \"bash $WORK/greet.sh | grep -q '^hello$' => PASS\"]" >/dev/null
+"$BIN" add-ticket --spec-id "$SID" --title "Greet by name" \
+  --description "Update the existing $WORK/greet.sh so its first argument is a name, defaulting to world, and it prints exactly hello followed by that name." \
+  --criteria "[\"bash $WORK/greet.sh World | grep -q 'hello World' => PASS\"]" >/dev/null
+"$BIN" add-ticket --spec-id "$SID" --title "Uppercase greeting" \
+  --description "Update the existing $WORK/greet.sh so the greeting and supplied name are uppercase, producing exactly HELLO WORLD for argument world." \
+  --criteria "[\"bash $WORK/greet.sh world | grep -q 'HELLO WORLD' => PASS\"]" >/dev/null
 printf "  3 tickets queued\n"
 pause
 
@@ -214,7 +213,7 @@ if [ "$rc" -eq 2 ]; then
 fi
 
 banner "final board"
-"$BIN" list --design "$DID" | python3 -c '
+"$BIN" list --spec-id "$SID" | python3 -c '
 import sys, json
 for t in json.load(sys.stdin):
     print("  #%s %-20s %-12s attempts=%s" % (t["id"], t["title"], t["status"], t["attempts"]))

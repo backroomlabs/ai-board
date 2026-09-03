@@ -19,24 +19,14 @@ enum Cmd {
     /// Initialize the board database (idempotent).
     Init,
 
-    /// Create a design from a markdown spec file or stdin.
-    CreateDesign {
-        #[arg(long)]
-        title: String,
-        #[arg(long, conflicts_with = "stdin")]
-        file: Option<std::path::PathBuf>,
-        #[arg(long)]
-        stdin: bool,
-    },
-
-    /// Add a ticket to a design.
+    /// Add a ticket to a spec.
     AddTicket {
         #[arg(long)]
-        design: i64,
+        spec_id: i64,
         #[arg(long)]
         title: String,
         #[arg(long)]
-        spec: String,
+        description: String,
         /// JSON array of checkable criteria, e.g. '["cargo test => PASS"]'
         #[arg(long)]
         criteria: String,
@@ -45,16 +35,16 @@ enum Cmd {
     /// Claim the oldest queued ticket (queued -> implementing).
     Next {
         #[arg(long)]
-        design: Option<i64>,
+        spec_id: Option<i64>,
     },
 
-    /// Show a full ticket including its parent design_md (JSON).
+    /// Show a ticket (JSON).
     Show { ticket_id: i64 },
 
-    /// List tickets for a design (JSON array).
+    /// List tickets for a spec (JSON array).
     List {
         #[arg(long)]
-        design: i64,
+        spec_id: i64,
     },
 
     /// Update a ticket's status / context / attempts.
@@ -71,16 +61,16 @@ enum Cmd {
     /// Return the stranded needs_human ticket, if any (JSON).
     NeedsHuman {
         #[arg(long)]
-        design: Option<i64>,
+        spec_id: Option<i64>,
     },
 
-    /// Subcommands for working with designs.
-    Design {
+    /// Commands for working with specs.
+    Spec {
         #[command(subcommand)]
-        cmd: DesignCmd,
+        cmd: SpecCmd,
     },
 
-    /// Serve the read-only live board UI over HTTP.
+    /// Serve the live editable board UI over HTTP.
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
@@ -88,50 +78,67 @@ enum Cmd {
 }
 
 #[derive(Subcommand)]
-enum DesignCmd {
-    /// List all designs (JSON array, newest first).
+enum SpecCmd {
+    /// Add a spec from a content file or stdin.
+    Add {
+        #[arg(long)]
+        title: String,
+        #[arg(long, conflicts_with = "stdin")]
+        file: Option<std::path::PathBuf>,
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// List all specs as JSON, newest first.
     List,
-    /// Print a design's raw markdown (NOT JSON; for humans).
-    Show { design_id: i64 },
+    /// Print a spec's raw content.
+    Get { spec_id: i64 },
 }
 
 fn run(cli: Cli) -> Result<Value> {
     match cli.command {
         Cmd::Init => commands::init(),
-        Cmd::CreateDesign { title, file, stdin } => {
-            commands::create_design(&title, file.as_deref(), stdin)
-        }
         Cmd::AddTicket {
-            design,
+            spec_id,
             title,
-            spec,
+            description,
             criteria,
-        } => commands::add_ticket(design, &title, &spec, &criteria),
-        Cmd::Next { design } => commands::next(design),
+        } => commands::add_ticket(spec_id, &title, &description, &criteria),
+        Cmd::Next { spec_id } => commands::next(spec_id),
         Cmd::Show { ticket_id } => commands::show(ticket_id),
-        Cmd::List { design } => commands::list(design),
+        Cmd::List { spec_id } => commands::list(spec_id),
         Cmd::Update {
             ticket_id,
             status,
             context,
             bump_attempts,
         } => commands::update(ticket_id, &status, context.as_deref(), bump_attempts),
-        Cmd::NeedsHuman { design } => commands::needs_human(design),
-        Cmd::Design { cmd } => match cmd {
-            DesignCmd::List => commands::designs(),
-            DesignCmd::Show { design_id } => commands::design(design_id),
+        Cmd::NeedsHuman { spec_id } => commands::needs_human(spec_id),
+        Cmd::Spec { cmd } => match cmd {
+            SpecCmd::Add { title, file, stdin } => {
+                commands::add_spec(&title, file.as_deref(), stdin)
+            }
+            SpecCmd::List => commands::specs(),
+            SpecCmd::Get { spec_id } => commands::get_spec(spec_id),
         },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
     }
 }
 
+fn exit_with_error(error: impl std::fmt::Display) -> ! {
+    let envelope = serde_json::json!({"ok": false, "error": error.to_string()});
+    eprintln!("{}", serde_json::to_string(&envelope).unwrap());
+    std::process::exit(1);
+}
+
 fn main() {
     let cli = Cli::parse();
+    if let Err(error) = db::preflight() {
+        exit_with_error(error);
+    }
     // `serve` runs forever and emits no JSON — handle it before the JSON printer.
     if let Cmd::Serve { port } = &cli.command {
-        if let Err(err) = serve::serve(*port) {
-            eprintln!("{}", serde_json::json!({"ok": false, "error": err.to_string()}));
-            std::process::exit(1);
+        if let Err(error) = serve::serve(*port) {
+            exit_with_error(error);
         }
         return;
     }
@@ -143,10 +150,6 @@ fn main() {
                 println!("{}", serde_json::to_string(&value).unwrap());
             }
         }
-        Err(err) => {
-            let envelope = serde_json::json!({"ok": false, "error": err.to_string()});
-            eprintln!("{}", serde_json::to_string(&envelope).unwrap());
-            std::process::exit(1);
-        }
+        Err(error) => exit_with_error(error),
     }
 }
