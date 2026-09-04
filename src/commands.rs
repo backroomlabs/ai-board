@@ -42,18 +42,18 @@ pub fn add_spec(title: &str, file: Option<&Path>, stdin: bool) -> Result<Value> 
     Ok(json!({"id": conn.last_insert_rowid(), "title": title}))
 }
 
-pub fn add_ticket(spec_id: i64, title: &str, description: &str, criteria: &str) -> Result<Value> {
-    let parsed: Value = serde_json::from_str(criteria)
-        .map_err(|error| anyhow::anyhow!("--criteria is not valid JSON: {error}"))?;
+pub fn add_ticket(spec_id: i64, title: &str, description: &str, dod: &str) -> Result<Value> {
+    let parsed: Value = serde_json::from_str(dod)
+        .map_err(|error| anyhow::anyhow!("--dod is not valid JSON: {error}"))?;
     if !parsed.is_array() {
-        anyhow::bail!("--criteria must be a JSON array of command strings");
+        anyhow::bail!("--dod must be a JSON array");
     }
     let conn = db::open()?;
     ensure_spec_exists(&conn, spec_id)?;
     conn.execute(
-        "INSERT INTO ticket (spec_id, title, description, acceptance_criteria)
+        "INSERT INTO ticket (spec_id, title, description, definitions_of_done)
          VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![spec_id, title, description, criteria],
+        rusqlite::params![spec_id, title, description, dod],
     )?;
     Ok(json!({"id": conn.last_insert_rowid()}))
 }
@@ -61,18 +61,18 @@ pub fn add_ticket(spec_id: i64, title: &str, description: &str, criteria: &str) 
 fn row_to_ticket(conn: &Connection, id: i64) -> Result<Option<Ticket>> {
     let ticket = conn
         .query_row(
-            "SELECT id, spec_id, title, description, acceptance_criteria,
+            "SELECT id, spec_id, title, description, definitions_of_done,
                     status, attempts, human_context
              FROM ticket WHERE id = ?1",
             [id],
             |row| {
-                let criteria_raw: String = row.get(4)?;
+                let dod_raw: String = row.get(4)?;
                 Ok(Ticket {
                     id: row.get(0)?,
                     spec_id: row.get(1)?,
                     title: row.get(2)?,
                     description: row.get(3)?,
-                    acceptance_criteria: serde_json::from_str(&criteria_raw).unwrap_or(Value::Null),
+                    definitions_of_done: serde_json::from_str(&dod_raw).unwrap_or(Value::Null),
                     status: row.get(5)?,
                     attempts: row.get(6)?,
                     human_context: row.get(7)?,
@@ -122,7 +122,7 @@ pub fn update_ticket_content_json(
     ticket_id: i64,
     title: &str,
     description: &str,
-    acceptance_criteria: &Value,
+    definitions_of_done: &Value,
 ) -> Result<Value> {
     if title.trim().is_empty() {
         anyhow::bail!("title must not be empty");
@@ -130,16 +130,16 @@ pub fn update_ticket_content_json(
     if description.trim().is_empty() {
         anyhow::bail!("description must not be empty");
     }
-    if !acceptance_criteria.is_array() {
-        anyhow::bail!("acceptance_criteria must be a JSON array");
+    if !definitions_of_done.is_array() {
+        anyhow::bail!("definitions_of_done must be a JSON array");
     }
 
-    let criteria_json = serde_json::to_string(acceptance_criteria)?;
+    let dod_json = serde_json::to_string(definitions_of_done)?;
     let changed = conn.execute(
         "UPDATE ticket
-         SET title = ?1, description = ?2, acceptance_criteria = ?3
+         SET title = ?1, description = ?2, definitions_of_done = ?3
          WHERE id = ?4",
-        rusqlite::params![title, description, criteria_json, ticket_id],
+        rusqlite::params![title, description, dod_json, ticket_id],
     )?;
     if changed == 0 {
         anyhow::bail!("ticket {ticket_id} not found");
@@ -151,10 +151,10 @@ pub fn update_ticket_content(
     ticket_id: i64,
     title: &str,
     description: &str,
-    acceptance_criteria: &Value,
+    definitions_of_done: &Value,
 ) -> Result<Value> {
     let conn = db::open()?;
-    update_ticket_content_json(&conn, ticket_id, title, description, acceptance_criteria)
+    update_ticket_content_json(&conn, ticket_id, title, description, definitions_of_done)
 }
 
 pub fn list(spec_id: i64) -> Result<Value> {
@@ -336,13 +336,13 @@ mod view_tests {
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO ticket (spec_id, title, description, acceptance_criteria, status) \
+            "INSERT INTO ticket (spec_id, title, description, definitions_of_done, status) \
              VALUES (1, 'T1', 'do x', '[\"true => PASS\"]', 'queued')",
             [],
         )
         .unwrap();
         conn.execute(
-            "INSERT INTO ticket (spec_id, title, description, acceptance_criteria, status) \
+            "INSERT INTO ticket (spec_id, title, description, definitions_of_done, status) \
              VALUES (1, 'T2', 'do y', '[\"true => PASS\"]', 'implementing')",
             [],
         )
@@ -369,7 +369,8 @@ mod view_tests {
         let tickets = v["tickets"].as_array().unwrap();
         assert_eq!(tickets.len(), 2);
         assert_eq!(tickets[0]["title"], "T1");
-        assert!(tickets[0]["acceptance_criteria"].is_array());
+        assert!(tickets[0]["definitions_of_done"].is_array());
+        assert!(tickets[0].get("tasks").is_none());
         assert_eq!(tickets[1]["status"], "implementing");
     }
 
@@ -388,7 +389,7 @@ mod view_tests {
         assert_eq!(v["spec_id"], 1);
         assert_eq!(v["description"], "do x");
         assert!(v.get("content").is_none());
-        assert!(v["acceptance_criteria"].is_array());
+        assert!(v["definitions_of_done"].is_array());
     }
 
     #[test]
@@ -400,19 +401,19 @@ mod view_tests {
         )
         .unwrap();
 
-        let criteria = json!(["cargo test => PASS", "cargo fmt --check => PASS"]);
+        let dod = json!(["cargo test => PASS", "cargo fmt --check => PASS"]);
         let v = update_ticket_content_json(
             &conn,
             1,
             "New ticket title",
             "New ticket description",
-            &criteria,
+            &dod,
         )
         .unwrap();
 
         assert_eq!(v["title"], "New ticket title");
         assert_eq!(v["description"], "New ticket description");
-        assert_eq!(v["acceptance_criteria"], criteria);
+        assert_eq!(v["definitions_of_done"], dod);
         assert_eq!(v["status"], "needs_human");
         assert_eq!(v["attempts"], 2);
         assert_eq!(v["human_context"], "blocked");
@@ -422,7 +423,7 @@ mod view_tests {
     fn update_ticket_content_allows_empty_criteria_array() {
         let conn = seed();
         let v = update_ticket_content_json(&conn, 1, "Title", "Description", &json!([])).unwrap();
-        assert_eq!(v["acceptance_criteria"], json!([]));
+        assert_eq!(v["definitions_of_done"], json!([]));
     }
 
     #[test]
@@ -450,7 +451,7 @@ mod view_tests {
             update_ticket_content_json(&conn, 1, "Title", "Description", &json!({"bad": true}))
                 .unwrap_err()
                 .to_string();
-        assert_eq!(err, "acceptance_criteria must be a JSON array");
+        assert_eq!(err, "definitions_of_done must be a JSON array");
     }
 
     #[test]

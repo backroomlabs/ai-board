@@ -589,8 +589,52 @@ fn init_creates_spec_and_ticket_columns() {
         .unwrap();
     assert!(ticket_columns.contains(&"spec_id".to_string()));
     assert!(ticket_columns.contains(&"description".to_string()));
+    assert!(ticket_columns.contains(&"definitions_of_done".to_string()));
+    assert!(!ticket_columns.contains(&"acceptance_criteria".to_string()));
     assert!(!ticket_columns.contains(&"design_id".to_string()));
     assert!(!ticket_columns.contains(&"spec".to_string()));
+
+    let task_columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(task)")
+        .unwrap()
+        .query_map([], |row| row.get(1))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert!(task_columns.contains(&"ticket_id".to_string()));
+    assert!(task_columns.contains(&"work_type".to_string()));
+    assert!(task_columns.contains(&"objective".to_string()));
+    assert!(task_columns.contains(&"acceptance_criteria".to_string()));
+    assert!(task_columns.contains(&"context".to_string()));
+}
+
+#[test]
+fn ticket_acceptance_criteria_schema_is_rejected() {
+    let dir = TempDir::new().unwrap();
+    let conn = rusqlite::Connection::open(dir.path().join("board.db")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE spec (id INTEGER PRIMARY KEY);
+         CREATE TABLE ticket (
+            id INTEGER PRIMARY KEY,
+            spec_id INTEGER,
+            title TEXT,
+            description TEXT,
+            acceptance_criteria TEXT,
+            status TEXT
+         );",
+    )
+    .unwrap();
+    let stderr = board(&dir)
+        .arg("init")
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let value: Value = serde_json::from_slice(&stderr).unwrap();
+    let error = value["error"].as_str().unwrap();
+    assert!(error.contains("acceptance_criteria"));
+    assert!(error.contains("recreate the board database"));
 }
 
 #[test]

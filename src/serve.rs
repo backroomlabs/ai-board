@@ -97,18 +97,18 @@ fn patch_ticket_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
             );
         }
     };
-    let acceptance_criteria = match parsed.get("acceptance_criteria") {
+    let definitions_of_done = match parsed.get("definitions_of_done") {
         Some(v) => v,
         None => {
             return (
-                serde_json::json!({"ok": false, "error": "missing field: acceptance_criteria"})
+                serde_json::json!({"ok": false, "error": "missing field: definitions_of_done"})
                     .to_string(),
                 400,
             );
         }
     };
 
-    match commands::update_ticket_content(id, title, description, acceptance_criteria) {
+    match commands::update_ticket_content(id, title, description, definitions_of_done) {
         Ok(v) => (v.to_string(), 200),
         Err(e) => {
             let msg = e.to_string();
@@ -330,7 +330,7 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO ticket
-             (spec_id, title, description, acceptance_criteria, status)
+             (spec_id, title, description, definitions_of_done, status)
              VALUES (1, 'T', 'do work', '[\"cargo test => PASS\"]', 'queued')",
             [],
         )
@@ -405,7 +405,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Updated",
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -414,7 +414,7 @@ mod tests {
         assert_eq!(code, 200);
         assert_eq!(value["title"], "Updated");
         assert_eq!(value["description"], "updated description");
-        assert_eq!(value["acceptance_criteria"], serde_json::json!([]));
+        assert_eq!(value["definitions_of_done"], serde_json::json!([]));
     }
 
     #[test]
@@ -424,7 +424,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Valid title",
             "description": "   ",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -436,13 +436,13 @@ mod tests {
     }
 
     #[test]
-    fn patch_ticket_response_rejects_non_array_criteria() {
+    fn patch_ticket_response_rejects_non_array_dod() {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Valid title",
             "description": "Valid description",
-            "acceptance_criteria": {"bad": true}
+            "definitions_of_done": {"bad": true}
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -450,7 +450,7 @@ mod tests {
 
         assert_eq!(code, 400);
         assert_eq!(v["ok"], false);
-        assert_eq!(v["error"], "acceptance_criteria must be a JSON array");
+        assert_eq!(v["error"], "definitions_of_done must be a JSON array");
     }
 
     #[test]
@@ -459,7 +459,7 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -476,7 +476,7 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Updated",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -494,7 +494,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Updated",
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(999, &payload);
