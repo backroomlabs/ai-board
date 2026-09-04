@@ -71,9 +71,9 @@ enum TicketCmd {
         title: String,
         #[arg(long)]
         description: String,
-        /// JSON array of checkable criteria, e.g. '["cargo test => PASS"]'
+        /// JSON array of prose definitions of done, e.g. '["towers attack in range"]'
         #[arg(long)]
-        criteria: String,
+        dod: String,
     },
     /// Show a ticket (JSON).
     Show { ticket_id: i64 },
@@ -124,8 +124,8 @@ fn run(cli: Cli) -> Result<Value> {
                 spec_id,
                 title,
                 description,
-                criteria,
-            } => commands::add_ticket(spec_id, &title, &description, &criteria),
+                dod,
+            } => commands::add_ticket(spec_id, &title, &description, &dod),
             TicketCmd::Show { ticket_id } => commands::show(ticket_id),
             TicketCmd::List { spec_id } => commands::list(spec_id),
         },

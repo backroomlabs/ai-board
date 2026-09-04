@@ -1,6 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::net::TcpListener;
 use tempfile::TempDir;
 
@@ -59,8 +59,8 @@ fn add_ticket(dir: &TempDir, spec_id: i64, title: &str) -> i64 {
             title,
             "--description",
             "do x",
-            "--criteria",
-            r#"["true => PASS"]"#,
+            "--dod",
+            r#"["greeter exists"]"#,
         ])
         .assert()
         .success()
@@ -128,8 +128,8 @@ fn add_ticket_ok() {
             "T",
             "--description",
             "do x",
-            "--criteria",
-            r#"["cargo test => PASS"]"#,
+            "--dod",
+            r#"["greeter exists"]"#,
         ])
         .assert()
         .success()
@@ -141,7 +141,7 @@ fn add_ticket_ok() {
 }
 
 #[test]
-fn add_ticket_rejects_non_array_criteria() {
+fn add_ticket_rejects_non_array_dod() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     let spec_id = make_spec(&dir);
@@ -155,7 +155,7 @@ fn add_ticket_rejects_non_array_criteria() {
             "T",
             "--description",
             "do x",
-            "--criteria",
+            "--dod",
             r#"{"not":"array"}"#,
         ])
         .assert()
@@ -176,8 +176,8 @@ fn add_ticket_rejects_unknown_spec() {
             "T",
             "--description",
             "do x",
-            "--criteria",
-            r#"["true => PASS"]"#,
+            "--dod",
+            r#"["greeter exists"]"#,
         ])
         .assert()
         .failure();
@@ -243,6 +243,8 @@ fn show_returns_ticket_without_parent_content() {
 
     assert_eq!(value["spec_id"], spec_id);
     assert_eq!(value["description"], "do x");
+    assert_eq!(value["definitions_of_done"], json!(["greeter exists"]));
+    assert!(value.get("acceptance_criteria").is_none());
     assert!(value.get("content").is_none());
     assert!(value.get("design_md").is_none());
 }
@@ -478,9 +480,24 @@ fn removed_design_commands_and_flags_are_rejected() {
             "T",
             "--description",
             "valid description",
+            "--criteria",
+            "[]",
+        ])
+        .assert()
+        .failure();
+    board(&dir)
+        .args([
+            "ticket",
+            "add",
+            "--spec-id",
+            &spec_id,
+            "--title",
+            "T",
+            "--description",
+            "valid description",
             "--spec",
             "old field",
-            "--criteria",
+            "--dod",
             "[]",
         ])
         .assert()
