@@ -54,11 +54,43 @@ enum Cmd {
         cmd: TicketCmd,
     },
 
+    /// Commands for working with tasks.
+    Task {
+        #[command(subcommand)]
+        cmd: TaskCmd,
+    },
+
     /// Serve the live editable board UI over HTTP.
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
     },
+}
+
+#[derive(Subcommand)]
+enum TaskCmd {
+    /// Add a task to a ticket.
+    Add {
+        #[arg(long)]
+        ticket_id: i64,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        work_type: String,
+        #[arg(long)]
+        objective: String,
+        #[arg(long)]
+        criteria: String,
+        #[arg(long)]
+        context: Option<String>,
+    },
+    /// List tasks for a ticket (JSON array).
+    List {
+        #[arg(long)]
+        ticket_id: i64,
+    },
+    /// Show a task (JSON).
+    Show { task_id: i64 },
 }
 
 #[derive(Subcommand)]
@@ -128,6 +160,25 @@ fn run(cli: Cli) -> Result<Value> {
             } => commands::add_ticket(spec_id, &title, &description, &dod),
             TicketCmd::Show { ticket_id } => commands::show(ticket_id),
             TicketCmd::List { spec_id } => commands::list(spec_id),
+        },
+        Cmd::Task { cmd } => match cmd {
+            TaskCmd::Add {
+                ticket_id,
+                title,
+                work_type,
+                objective,
+                criteria,
+                context,
+            } => commands::add_task(
+                ticket_id,
+                &title,
+                &work_type,
+                &objective,
+                &criteria,
+                context.as_deref(),
+            ),
+            TaskCmd::List { ticket_id } => commands::list_tasks(ticket_id),
+            TaskCmd::Show { task_id } => commands::show_task(task_id),
         },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
     }

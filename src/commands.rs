@@ -6,7 +6,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::db;
-use crate::models::{Status, Ticket};
+use crate::models::{Status, Task, Ticket, WorkType};
 
 fn ensure_spec_exists(conn: &Connection, spec_id: i64) -> Result<()> {
     let exists = conn
@@ -16,6 +16,25 @@ fn ensure_spec_exists(conn: &Connection, spec_id: i64) -> Result<()> {
         anyhow::bail!("spec {spec_id} not found");
     }
     Ok(())
+}
+
+fn ensure_ticket_exists(conn: &Connection, ticket_id: i64) -> Result<()> {
+    let exists = conn
+        .query_row("SELECT 1 FROM ticket WHERE id = ?1", [ticket_id], |_| Ok(()))
+        .optional()?;
+    if exists.is_none() {
+        anyhow::bail!("ticket {ticket_id} not found");
+    }
+    Ok(())
+}
+
+fn parse_json_array(raw: &str, flag: &str) -> Result<Value> {
+    let parsed: Value = serde_json::from_str(raw)
+        .map_err(|error| anyhow::anyhow!("{flag} is not valid JSON: {error}"))?;
+    if !parsed.is_array() {
+        anyhow::bail!("{flag} must be a JSON array");
+    }
+    Ok(parsed)
 }
 
 pub fn init() -> Result<Value> {
@@ -106,10 +125,97 @@ pub fn next(spec_id: Option<i64>) -> Result<Value> {
     }
 }
 
+fn row_to_task(conn: &Connection, id: i64) -> Result<Option<Task>> {
+    let task = conn
+        .query_row(
+            "SELECT id, ticket_id, title, work_type, objective, acceptance_criteria, context
+             FROM task WHERE id = ?1",
+            [id],
+            |row| {
+                let criteria_raw: String = row.get(5)?;
+                Ok(Task {
+                    id: row.get(0)?,
+                    ticket_id: row.get(1)?,
+                    title: row.get(2)?,
+                    work_type: row.get(3)?,
+                    objective: row.get(4)?,
+                    acceptance_criteria: serde_json::from_str(&criteria_raw).unwrap_or(Value::Null),
+                    context: row.get(6)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(task)
+}
+
+fn tasks_for_ticket(conn: &Connection, ticket_id: i64) -> Result<Vec<Task>> {
+    let mut stmt = conn.prepare(
+        "SELECT id FROM task WHERE ticket_id = ?1 ORDER BY id",
+    )?;
+    let ids: Vec<i64> = stmt
+        .query_map([ticket_id], |row| row.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    ids.into_iter()
+        .map(|id| row_to_task(conn, id).map(|t| t.expect("just selected")))
+        .collect()
+}
+
+pub fn add_task(
+    ticket_id: i64,
+    title: &str,
+    work_type: &str,
+    objective: &str,
+    criteria: &str,
+    context: Option<&str>,
+) -> Result<Value> {
+    if title.trim().is_empty() {
+        anyhow::bail!("title must not be empty");
+    }
+    if objective.trim().is_empty() {
+        anyhow::bail!("objective must not be empty");
+    }
+    let work_type = WorkType::from_str(work_type)?;
+    let _ = parse_json_array(criteria, "--criteria")?;
+    let conn = db::open()?;
+    ensure_ticket_exists(&conn, ticket_id)?;
+    conn.execute(
+        "INSERT INTO task (ticket_id, title, work_type, objective, acceptance_criteria, context)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![
+            ticket_id,
+            title,
+            work_type.as_str(),
+            objective,
+            criteria,
+            context.unwrap_or("")
+        ],
+    )?;
+    Ok(json!({"id": conn.last_insert_rowid()}))
+}
+
+pub fn list_tasks(ticket_id: i64) -> Result<Value> {
+    let conn = db::open()?;
+    ensure_ticket_exists(&conn, ticket_id)?;
+    Ok(serde_json::to_value(tasks_for_ticket(&conn, ticket_id)?)?)
+}
+
+pub fn show_task(task_id: i64) -> Result<Value> {
+    let conn = db::open()?;
+    task_json(&conn, task_id)
+}
+
+pub fn task_json(conn: &Connection, task_id: i64) -> Result<Value> {
+    let task = row_to_task(conn, task_id)?
+        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    Ok(serde_json::to_value(task)?)
+}
+
 pub fn ticket_json(conn: &Connection, ticket_id: i64) -> Result<Value> {
     let ticket = row_to_ticket(conn, ticket_id)?
         .ok_or_else(|| anyhow::anyhow!("ticket {ticket_id} not found"))?;
-    Ok(serde_json::to_value(ticket)?)
+    let mut value = serde_json::to_value(ticket)?;
+    value["tasks"] = serde_json::to_value(tasks_for_ticket(conn, ticket_id)?)?;
+    Ok(value)
 }
 
 pub fn show(ticket_id: i64) -> Result<Value> {

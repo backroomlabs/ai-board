@@ -71,6 +71,209 @@ fn add_ticket(dir: &TempDir, spec_id: i64, title: &str) -> i64 {
     value["id"].as_i64().unwrap()
 }
 
+fn add_task(dir: &TempDir, ticket_id: i64, title: &str) -> i64 {
+    let out = board(dir)
+        .args([
+            "task",
+            "add",
+            "--ticket-id",
+            &ticket_id.to_string(),
+            "--title",
+            title,
+            "--work-type",
+            "code_implementation",
+            "--objective",
+            "detect range",
+            "--criteria",
+            r#"["cargo test range => PASS"]"#,
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    serde_json::from_slice::<Value>(&out).unwrap()["id"]
+        .as_i64()
+        .unwrap()
+}
+
+#[test]
+fn task_add_list_show_and_ticket_show_nests_tasks() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let spec_id = make_spec(&dir);
+    let ticket_id = add_ticket(&dir, spec_id, "targeting");
+    let t1 = add_task(&dir, ticket_id, "range");
+    let t2 = add_task(&dir, ticket_id, "nearest");
+
+    let listed = board(&dir)
+        .args(["task", "list", "--ticket-id", &ticket_id.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let listed: Value = serde_json::from_slice(&listed).unwrap();
+    assert_eq!(listed.as_array().unwrap().len(), 2);
+    assert_eq!(listed[0]["id"], t1);
+    assert_eq!(listed[1]["id"], t2);
+    assert_eq!(listed[0]["work_type"], "code_implementation");
+    assert_eq!(listed[0]["context"], "");
+
+    let shown = board(&dir)
+        .args(["task", "show", &t1.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let shown: Value = serde_json::from_slice(&shown).unwrap();
+    assert_eq!(shown["objective"], "detect range");
+    assert_eq!(shown["acceptance_criteria"], json!(["cargo test range => PASS"]));
+
+    let ticket = board(&dir)
+        .args(["ticket", "show", &ticket_id.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let ticket: Value = serde_json::from_slice(&ticket).unwrap();
+    assert_eq!(ticket["tasks"].as_array().unwrap().len(), 2);
+    assert_eq!(ticket["tasks"][0]["title"], "range");
+
+    let tickets = board(&dir)
+        .args(["ticket", "list", "--spec-id", &spec_id.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let tickets: Value = serde_json::from_slice(&tickets).unwrap();
+    assert!(tickets[0].get("tasks").is_none());
+}
+
+#[test]
+fn task_add_rejects_unknown_ticket_and_work_type() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    assert_json_error(
+        &dir,
+        &[
+            "task",
+            "add",
+            "--ticket-id",
+            "999",
+            "--title",
+            "T",
+            "--work-type",
+            "code_implementation",
+            "--objective",
+            "x",
+            "--criteria",
+            "[]",
+        ],
+        "ticket 999 not found",
+    );
+    let spec_id = make_spec(&dir);
+    let ticket_id = add_ticket(&dir, spec_id, "t");
+    board(&dir)
+        .args([
+            "task",
+            "add",
+            "--ticket-id",
+            &ticket_id.to_string(),
+            "--title",
+            "T",
+            "--work-type",
+            "refactor",
+            "--objective",
+            "x",
+            "--criteria",
+            "[]",
+        ])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn task_add_omitted_context_is_empty_string() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let spec_id = make_spec(&dir);
+    let ticket_id = add_ticket(&dir, spec_id, "t");
+    let id = add_task(&dir, ticket_id, "range");
+    let shown = board(&dir)
+        .args(["task", "show", &id.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let shown: Value = serde_json::from_slice(&shown).unwrap();
+    assert_eq!(shown["context"], "");
+}
+
+#[test]
+fn task_add_context_round_trips() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let spec_id = make_spec(&dir);
+    let ticket_id = add_ticket(&dir, spec_id, "t");
+    let out = board(&dir)
+        .args([
+            "task",
+            "add",
+            "--ticket-id",
+            &ticket_id.to_string(),
+            "--title",
+            "range",
+            "--work-type",
+            "code_implementation",
+            "--objective",
+            "detect range",
+            "--criteria",
+            r#"["cargo test range => PASS"]"#,
+            "--context",
+            "notes",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let id = serde_json::from_slice::<Value>(&out).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let shown = board(&dir)
+        .args(["task", "show", &id.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let shown: Value = serde_json::from_slice(&shown).unwrap();
+    assert_eq!(shown["context"], "notes");
+}
+
+#[test]
+fn task_show_unknown_id_errors() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    assert_json_error(&dir, &["task", "show", "999"], "task 999 not found");
+}
+
+#[test]
+fn task_list_rejects_unknown_ticket() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    assert_json_error(
+        &dir,
+        &["task", "list", "--ticket-id", "999"],
+        "ticket 999 not found",
+    );
+}
+
 #[test]
 fn init_creates_db() {
     let dir = TempDir::new().unwrap();
