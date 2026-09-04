@@ -19,32 +19,10 @@ enum Cmd {
     /// Initialize the board database (idempotent).
     Init,
 
-    /// Add a ticket to a spec.
-    AddTicket {
-        #[arg(long)]
-        spec_id: i64,
-        #[arg(long)]
-        title: String,
-        #[arg(long)]
-        description: String,
-        /// JSON array of checkable criteria, e.g. '["cargo test => PASS"]'
-        #[arg(long)]
-        criteria: String,
-    },
-
     /// Claim the oldest queued ticket (queued -> implementing).
     Next {
         #[arg(long)]
         spec_id: Option<i64>,
-    },
-
-    /// Show a ticket (JSON).
-    Show { ticket_id: i64 },
-
-    /// List tickets for a spec (JSON array).
-    List {
-        #[arg(long)]
-        spec_id: i64,
     },
 
     /// Update a ticket's status / context / attempts.
@@ -70,10 +48,71 @@ enum Cmd {
         cmd: SpecCmd,
     },
 
+    /// Commands for working with tickets.
+    Ticket {
+        #[command(subcommand)]
+        cmd: TicketCmd,
+    },
+
+    /// Commands for working with tasks.
+    Task {
+        #[command(subcommand)]
+        cmd: TaskCmd,
+    },
+
     /// Serve the live editable board UI over HTTP.
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
+    },
+}
+
+#[derive(Subcommand)]
+enum TaskCmd {
+    /// Add a task to a ticket.
+    Add {
+        #[arg(long)]
+        ticket_id: i64,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        work_type: String,
+        #[arg(long)]
+        objective: String,
+        #[arg(long)]
+        criteria: String,
+        #[arg(long)]
+        context: Option<String>,
+    },
+    /// List tasks for a ticket (JSON array).
+    List {
+        #[arg(long)]
+        ticket_id: i64,
+    },
+    /// Show a task (JSON).
+    Show { task_id: i64 },
+}
+
+#[derive(Subcommand)]
+enum TicketCmd {
+    /// Add a ticket to a spec.
+    Add {
+        #[arg(long)]
+        spec_id: i64,
+        #[arg(long)]
+        title: String,
+        #[arg(long)]
+        description: String,
+        /// JSON array of prose definitions of done, e.g. '["towers attack in range"]'
+        #[arg(long)]
+        dod: String,
+    },
+    /// Show a ticket (JSON).
+    Show { ticket_id: i64 },
+    /// List tickets for a spec (JSON array).
+    List {
+        #[arg(long)]
+        spec_id: i64,
     },
 }
 
@@ -97,15 +136,7 @@ enum SpecCmd {
 fn run(cli: Cli) -> Result<Value> {
     match cli.command {
         Cmd::Init => commands::init(),
-        Cmd::AddTicket {
-            spec_id,
-            title,
-            description,
-            criteria,
-        } => commands::add_ticket(spec_id, &title, &description, &criteria),
         Cmd::Next { spec_id } => commands::next(spec_id),
-        Cmd::Show { ticket_id } => commands::show(ticket_id),
-        Cmd::List { spec_id } => commands::list(spec_id),
         Cmd::Update {
             ticket_id,
             status,
@@ -119,6 +150,35 @@ fn run(cli: Cli) -> Result<Value> {
             }
             SpecCmd::List => commands::specs(),
             SpecCmd::Get { spec_id } => commands::get_spec(spec_id),
+        },
+        Cmd::Ticket { cmd } => match cmd {
+            TicketCmd::Add {
+                spec_id,
+                title,
+                description,
+                dod,
+            } => commands::add_ticket(spec_id, &title, &description, &dod),
+            TicketCmd::Show { ticket_id } => commands::show(ticket_id),
+            TicketCmd::List { spec_id } => commands::list(spec_id),
+        },
+        Cmd::Task { cmd } => match cmd {
+            TaskCmd::Add {
+                ticket_id,
+                title,
+                work_type,
+                objective,
+                criteria,
+                context,
+            } => commands::add_task(
+                ticket_id,
+                &title,
+                &work_type,
+                &objective,
+                &criteria,
+                context.as_deref(),
+            ),
+            TaskCmd::List { ticket_id } => commands::list_tasks(ticket_id),
+            TaskCmd::Show { task_id } => commands::show_task(task_id),
         },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
     }

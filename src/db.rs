@@ -38,6 +38,30 @@ fn reject_legacy_schema(conn: &Connection, path: &std::path::Path) -> Result<()>
             path.display()
         );
     }
+    let ticket_exists: bool = conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM sqlite_master
+            WHERE type = 'table' AND name = 'ticket'
+        )",
+        [],
+        |row| row.get(0),
+    )?;
+    if ticket_exists {
+        let has_old: bool = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pragma_table_info('ticket')
+                WHERE name = 'acceptance_criteria'
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_old {
+            anyhow::bail!(
+                "legacy ticket.acceptance_criteria schema detected at {}; recreate the board database",
+                path.display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -56,13 +80,23 @@ pub fn init_schema(conn: &Connection) -> Result<()> {
             spec_id             INTEGER NOT NULL REFERENCES spec(id),
             title               TEXT NOT NULL,
             description         TEXT NOT NULL,
-            acceptance_criteria TEXT NOT NULL,
+            definitions_of_done TEXT NOT NULL,
             status              TEXT NOT NULL DEFAULT 'queued',
             attempts            INTEGER NOT NULL DEFAULT 0,
             human_context       TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_ticket_spec ON ticket(spec_id);
         CREATE INDEX IF NOT EXISTS idx_ticket_status ON ticket(status);
+        CREATE TABLE IF NOT EXISTS task (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            ticket_id           INTEGER NOT NULL REFERENCES ticket(id),
+            title               TEXT NOT NULL,
+            work_type           TEXT NOT NULL,
+            objective           TEXT NOT NULL,
+            acceptance_criteria TEXT NOT NULL,
+            context             TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_ticket ON task(ticket_id);
         "#,
     )?;
     Ok(())

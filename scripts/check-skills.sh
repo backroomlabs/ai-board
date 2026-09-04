@@ -2,33 +2,57 @@
 set -euo pipefail
 fail() { echo "FAIL: $1"; exit 1; }
 
-# brainstorming: handoff now calls the abd CLI, not a bare writing-plans handoff
-grep -q 'abd create-design' skills/board-brainstorming/SKILL.md \
-  || fail "board-brainstorming missing 'abd create-design' handoff"
-grep -q 'design_id' skills/board-brainstorming/SKILL.md \
-  || fail "board-brainstorming missing design_id capture"
+# brainstorming persists the approved spec and hands its id to board-planning
+grep -q 'abd spec add' skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming missing 'abd spec add' handoff"
+grep -q 'spec_id' skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming missing spec_id capture"
+grep -q 'board-planning' skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming missing board-planning handoff"
+grep -q 'skills/board-brainstorming/visual-companion.md' \
+  skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming has wrong visual companion path"
+grep -Fq '"User reviews spec?" -> "Persist spec with abd spec add\ncapture spec_id" [label="approved"];' \
+  skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming flow skips spec persistence"
+grep -Fq '"Persist spec with abd spec add\ncapture spec_id" -> "Invoke board-planning skill";' \
+  skills/board-brainstorming/SKILL.md \
+  || fail "board-brainstorming flow skips board-planning handoff"
 
-# board-planning: emits tickets, no plan.md, enforces teeth rule
-grep -q 'abd add-ticket' skills/board-planning/SKILL.md \
-  || fail "board-planning missing 'abd add-ticket'"
-grep -qi 'plan\.md' skills/board-planning/SKILL.md \
-  && fail "board-planning still references plan.md"
-grep -q 'Plan Document Header' skills/board-planning/SKILL.md \
-  && fail "board-planning still has Plan Document Header section"
-grep -qi 'JSON array' skills/board-planning/SKILL.md \
-  || fail "board-planning missing JSON-array criteria rule"
-grep -qi 'reject' skills/board-planning/SKILL.md \
-  || fail "board-planning missing prose-criteria rejection rule"
+# planning emits tickets (--dod) then tasks; no ticket --criteria
+grep -q 'abd ticket add' skills/board-planning/SKILL.md \
+  || fail "board-planning missing 'abd ticket add'"
+grep -q -- '--dod' skills/board-planning/SKILL.md \
+  || fail "board-planning missing --dod"
+grep -q 'abd ticket add --criteria' skills/board-planning/SKILL.md \
+  && fail "board-planning still uses ticket --criteria"
+grep -q 'abd task add' skills/board-planning/SKILL.md \
+  || fail "board-planning missing 'abd task add'"
+grep -q -- '--work-type' skills/board-planning/SKILL.md \
+  || fail "board-planning missing --work-type"
+grep -q 'ticket.acceptance_criteria' skills/board-planning/SKILL.md \
+  && fail "board-planning still mentions ticket.acceptance_criteria"
 
-# board-execute: needs-human first, then next; cap 3; never weaken
-grep -q 'abd needs-human' skills/board-execute/SKILL.md \
-  || fail "board-execute missing needs-human startup check"
+for wt in code_implementation investigation documentation design; do
+  grep -q "$wt" skills/board-planning/SKILL.md \
+    || fail "board-planning missing legal work-type '$wt'"
+done
+grep -q 'human_input' skills/board-planning/SKILL.md \
+  && fail "board-planning still mentions illegal work-type human_input"
+grep -q '|decision>' skills/board-planning/SKILL.md \
+  && fail "board-planning still mentions illegal work-type decision"
+
 grep -q 'abd next' skills/board-execute/SKILL.md \
-  || fail "board-execute missing abd next"
-grep -qi 'cap' skills/board-execute/SKILL.md \
-  || fail "board-execute missing attempts cap"
-grep -qi 'never weaken' skills/board-execute/SKILL.md \
-  || fail "board-execute missing 'never weaken a criterion' rule"
+  && fail "board-execute still uses abd next as the loop"
+grep -q 'Runs' skills/board-execute/SKILL.md \
+  || fail "board-execute missing Runs handoff"
+
+if [ -f scripts/check-vocabulary.py ]; then
+  python3 scripts/check-vocabulary.py
+fi
+if [ -f scripts/check-editor-requests.js ]; then
+  node scripts/check-editor-requests.js
+fi
 
 # every skill has parseable frontmatter with name + description
 python3 - <<'PY'

@@ -22,6 +22,15 @@ fn query_spec_id(url: &str) -> Option<i64> {
         .and_then(|(_, value)| value.parse().ok())
 }
 
+fn query_ticket_id(url: &str) -> Option<i64> {
+    let query = url.split_once('?')?.1;
+    query
+        .split('&')
+        .filter_map(|pair| pair.split_once('='))
+        .find(|(key, _)| *key == "ticket_id")
+        .and_then(|(_, value)| value.parse().ok())
+}
+
 fn request_path(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
@@ -57,6 +66,15 @@ fn route_json(url: &str) -> Result<serde_json::Value> {
             let spec_id =
                 query_spec_id(url).ok_or_else(|| anyhow::anyhow!("missing ?spec_id=<id>"))?;
             commands::board_json(&conn, spec_id)
+        }
+        "/api/tasks" => {
+            let ticket_id =
+                query_ticket_id(url).ok_or_else(|| anyhow::anyhow!("missing ?ticket_id=<id>"))?;
+            commands::list_tasks_json(&conn, ticket_id)
+        }
+        path if path.starts_with("/api/task/") => {
+            let id = parse_prefixed_id(path, "/api/task/", "task")?;
+            commands::task_json(&conn, id)
         }
         path if path.starts_with("/api/ticket/") => {
             let id = parse_prefixed_id(path, "/api/ticket/", "ticket")?;
@@ -97,18 +115,18 @@ fn patch_ticket_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
             );
         }
     };
-    let acceptance_criteria = match parsed.get("acceptance_criteria") {
+    let definitions_of_done = match parsed.get("definitions_of_done") {
         Some(v) => v,
         None => {
             return (
-                serde_json::json!({"ok": false, "error": "missing field: acceptance_criteria"})
+                serde_json::json!({"ok": false, "error": "missing field: definitions_of_done"})
                     .to_string(),
                 400,
             );
         }
     };
 
-    match commands::update_ticket_content(id, title, description, acceptance_criteria) {
+    match commands::update_ticket_content(id, title, description, definitions_of_done) {
         Ok(v) => (v.to_string(), 200),
         Err(e) => {
             let msg = e.to_string();
@@ -154,6 +172,161 @@ fn patch_spec_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
     }
 }
 
+fn post_task_response(parsed: &serde_json::Value) -> (String, u16) {
+    let ticket_id = match parsed["ticket_id"].as_i64() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: ticket_id"}).to_string(),
+                400,
+            );
+        }
+    };
+    let title = match parsed["title"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: title"}).to_string(),
+                400,
+            );
+        }
+    };
+    let work_type = match parsed["work_type"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: work_type"}).to_string(),
+                400,
+            );
+        }
+    };
+    let objective = match parsed["objective"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: objective"}).to_string(),
+                400,
+            );
+        }
+    };
+    let acceptance_criteria = match parsed.get("acceptance_criteria") {
+        Some(value) if value.is_array() => value,
+        Some(_) => {
+            return (
+                serde_json::json!({
+                    "ok": false,
+                    "error": "acceptance_criteria must be a JSON array"
+                })
+                .to_string(),
+                400,
+            );
+        }
+        None => {
+            return (
+                serde_json::json!({
+                    "ok": false,
+                    "error": "missing field: acceptance_criteria"
+                })
+                .to_string(),
+                400,
+            );
+        }
+    };
+    let context = parsed["context"].as_str();
+    let criteria = match serde_json::to_string(acceptance_criteria) {
+        Ok(value) => value,
+        Err(error) => {
+            return (
+                serde_json::json!({"ok": false, "error": error.to_string()}).to_string(),
+                400,
+            );
+        }
+    };
+
+    match commands::add_task(ticket_id, title, work_type, objective, &criteria, context) {
+        Ok(value) => (value.to_string(), 200),
+        Err(error) => {
+            let message = error.to_string();
+            let code = api_error_status(&message);
+            (
+                serde_json::json!({"ok": false, "error": message}).to_string(),
+                code,
+            )
+        }
+    }
+}
+
+fn patch_task_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
+    let title = match parsed["title"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: title"}).to_string(),
+                400,
+            );
+        }
+    };
+    let work_type = match parsed["work_type"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: work_type"}).to_string(),
+                400,
+            );
+        }
+    };
+    let objective = match parsed["objective"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: objective"}).to_string(),
+                400,
+            );
+        }
+    };
+    let acceptance_criteria = match parsed.get("acceptance_criteria") {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({
+                    "ok": false,
+                    "error": "missing field: acceptance_criteria"
+                })
+                .to_string(),
+                400,
+            );
+        }
+    };
+    let context = match parsed["context"].as_str() {
+        Some(value) => value,
+        None => {
+            return (
+                serde_json::json!({"ok": false, "error": "missing field: context"}).to_string(),
+                400,
+            );
+        }
+    };
+
+    match commands::update_task_content(
+        id,
+        title,
+        work_type,
+        objective,
+        acceptance_criteria,
+        context,
+    ) {
+        Ok(value) => (value.to_string(), 200),
+        Err(error) => {
+            let message = error.to_string();
+            let code = api_error_status(&message);
+            (
+                serde_json::json!({"ok": false, "error": message}).to_string(),
+                code,
+            )
+        }
+    }
+}
+
 pub fn serve(port: u16) -> Result<()> {
     if port_in_use(port) {
         eprintln!("abd serve: already running on port {port}");
@@ -167,6 +340,85 @@ pub fn serve(port: u16) -> Result<()> {
         let url = request.url().to_string();
         let method = request.method().clone();
         let path = request_path(&url);
+
+        if method == Method::Post && path == "/api/tasks" {
+            let mut raw = String::new();
+            if request.as_reader().read_to_string(&mut raw).is_err() {
+                let body = serde_json::json!({"ok": false, "error": "failed to read request body"})
+                    .to_string();
+                let _ = request.respond(
+                    Response::from_string(body)
+                        .with_header(json_header())
+                        .with_status_code(400),
+                );
+                continue;
+            }
+            let parsed = match parse_json_body(&raw) {
+                Ok(value) => value,
+                Err(error) => {
+                    let body = serde_json::json!({"ok": false, "error": error}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let (body, code) = post_task_response(&parsed);
+            let _ = request.respond(
+                Response::from_string(body)
+                    .with_header(json_header())
+                    .with_status_code(code),
+            );
+            continue;
+        }
+
+        if method == Method::Patch && path.starts_with("/api/task/") {
+            let id = match parse_prefixed_id(path, "/api/task/", "task") {
+                Ok(id) => id,
+                Err(error) => {
+                    let body =
+                        serde_json::json!({"ok": false, "error": error.to_string()}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let mut raw = String::new();
+            if request.as_reader().read_to_string(&mut raw).is_err() {
+                let body = serde_json::json!({"ok": false, "error": "failed to read request body"})
+                    .to_string();
+                let _ = request.respond(
+                    Response::from_string(body)
+                        .with_header(json_header())
+                        .with_status_code(400),
+                );
+                continue;
+            }
+            let parsed = match parse_json_body(&raw) {
+                Ok(value) => value,
+                Err(error) => {
+                    let body = serde_json::json!({"ok": false, "error": error}).to_string();
+                    let _ = request.respond(
+                        Response::from_string(body)
+                            .with_header(json_header())
+                            .with_status_code(400),
+                    );
+                    continue;
+                }
+            };
+            let (body, code) = patch_task_response(id, &parsed);
+            let _ = request.respond(
+                Response::from_string(body)
+                    .with_header(json_header())
+                    .with_status_code(code),
+            );
+            continue;
+        }
 
         if method == Method::Patch && path.starts_with("/api/ticket/") {
             let id = match parse_prefixed_id(path, "/api/ticket/", "ticket") {
@@ -310,6 +562,17 @@ mod tests {
         assert!(INDEX_HTML.contains("description,"));
         assert!(!INDEX_HTML.contains("/api/design"));
         assert!(!INDEX_HTML.contains("ticket.spec"));
+        assert!(INDEX_HTML.contains("definitions_of_done"));
+        assert!(INDEX_HTML.contains("/api/tasks"));
+        assert!(INDEX_HTML.contains("/api/task/"));
+        assert!(!INDEX_HTML.contains("ticket.acceptance_criteria"));
+        assert!(INDEX_HTML.contains("JSON.stringify({ title, description, definitions_of_done })"));
+        assert!(!INDEX_HTML.contains("JSON.stringify({ title, description, acceptance_criteria })"));
+        // DoD editor rows use prose font; task criteria keep .criteria-row mono.
+        assert!(INDEX_HTML.contains("criteria-row dod-row"));
+        assert!(INDEX_HTML.contains(".criteria-row.dod-row textarea"));
+        assert!(INDEX_HTML
+            .contains(".criteria-row.dod-row textarea { font:13px/1.4 system-ui, sans-serif; }"));
     }
 
     fn env_lock() -> &'static Mutex<()> {
@@ -330,7 +593,7 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO ticket
-             (spec_id, title, description, acceptance_criteria, status)
+             (spec_id, title, description, definitions_of_done, status)
              VALUES (1, 'T', 'do work', '[\"cargo test => PASS\"]', 'queued')",
             [],
         )
@@ -405,7 +668,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Updated",
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -414,7 +677,7 @@ mod tests {
         assert_eq!(code, 200);
         assert_eq!(value["title"], "Updated");
         assert_eq!(value["description"], "updated description");
-        assert_eq!(value["acceptance_criteria"], serde_json::json!([]));
+        assert_eq!(value["definitions_of_done"], serde_json::json!([]));
     }
 
     #[test]
@@ -424,7 +687,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Valid title",
             "description": "   ",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -436,13 +699,13 @@ mod tests {
     }
 
     #[test]
-    fn patch_ticket_response_rejects_non_array_criteria() {
+    fn patch_ticket_response_rejects_non_array_dod() {
         let _guard = env_lock().lock().unwrap();
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Valid title",
             "description": "Valid description",
-            "acceptance_criteria": {"bad": true}
+            "definitions_of_done": {"bad": true}
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -450,7 +713,7 @@ mod tests {
 
         assert_eq!(code, 400);
         assert_eq!(v["ok"], false);
-        assert_eq!(v["error"], "acceptance_criteria must be a JSON array");
+        assert_eq!(v["error"], "definitions_of_done must be a JSON array");
     }
 
     #[test]
@@ -459,7 +722,7 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -476,7 +739,7 @@ mod tests {
         let _dir = with_temp_db();
         let payload = serde_json::json!({
             "title": "Updated",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(1, &payload);
@@ -494,7 +757,7 @@ mod tests {
         let payload = serde_json::json!({
             "title": "Updated",
             "description": "updated description",
-            "acceptance_criteria": []
+            "definitions_of_done": []
         });
 
         let (body, code) = patch_ticket_response(999, &payload);
@@ -527,5 +790,98 @@ mod tests {
         assert_eq!(code, 200);
         assert_eq!(value["title"], "Updated");
         assert_eq!(value["content"], "# Updated");
+    }
+
+    #[test]
+    fn route_json_ticket_includes_tasks_board_does_not() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let conn = db::open().unwrap();
+        conn.execute(
+            "INSERT INTO task (ticket_id, title, work_type, objective, acceptance_criteria, context)
+             VALUES (1, 'range', 'code_implementation', 'detect', '[]', '')",
+            [],
+        )
+        .unwrap();
+
+        let ticket = route_json("/api/ticket/1").unwrap();
+        assert_eq!(ticket["tasks"][0]["title"], "range");
+        assert!(ticket.get("acceptance_criteria").is_none());
+        assert!(ticket["definitions_of_done"].is_array());
+
+        let board = route_json("/api/board?spec_id=1").unwrap();
+        assert!(board["tickets"][0].get("tasks").is_none());
+
+        let tasks = route_json("/api/tasks?ticket_id=1").unwrap();
+        assert_eq!(tasks.as_array().unwrap().len(), 1);
+
+        let task = route_json("/api/task/1").unwrap();
+        assert_eq!(task["title"], "range");
+    }
+
+    #[test]
+    fn post_and_patch_task() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let (body, code) = post_task_response(&serde_json::json!({
+            "ticket_id": 1,
+            "title": "range",
+            "work_type": "code_implementation",
+            "objective": "detect",
+            "acceptance_criteria": ["cargo test => PASS"]
+        }));
+        assert_eq!(code, 200);
+        let created: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let id = created["id"].as_i64().unwrap();
+
+        let (body, code) = patch_task_response(
+            id,
+            &serde_json::json!({
+                "title": "range 2",
+                "work_type": "investigation",
+                "objective": "survey",
+                "acceptance_criteria": [],
+                "context": "see src/range.rs"
+            }),
+        );
+        assert_eq!(code, 200);
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["title"], "range 2");
+        assert_eq!(value["work_type"], "investigation");
+        assert_eq!(value["context"], "see src/range.rs");
+    }
+
+    #[test]
+    fn post_task_rejects_unknown_work_type() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let (body, code) = post_task_response(&serde_json::json!({
+            "ticket_id": 1,
+            "title": "x",
+            "work_type": "refactor",
+            "objective": "x",
+            "acceptance_criteria": []
+        }));
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(code, 400);
+        assert!(value["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid work type"));
+    }
+
+    #[test]
+    fn patch_ticket_rejects_old_acceptance_criteria_key() {
+        let _guard = env_lock().lock().unwrap();
+        let _dir = with_temp_db();
+        let payload = serde_json::json!({
+            "title": "Updated",
+            "description": "updated description",
+            "acceptance_criteria": []
+        });
+        let (body, code) = patch_ticket_response(1, &payload);
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(code, 400);
+        assert_eq!(value["error"], "missing field: definitions_of_done");
     }
 }
