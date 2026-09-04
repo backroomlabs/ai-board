@@ -50,7 +50,7 @@ abd ticket add --spec-id <spec_id> \
 ```bash
 abd task add --ticket-id <ticket_id> \
   --title "<atomic deliverable name>" \
-  --work-type <code_implementation|investigation|human_input|decision> \
+  --work-type <code_implementation|investigation|documentation|design> \
   --objective "<complete self-contained implementation instructions>" \
   --criteria '<JSON array of exact commands + expected result>' \
   [--context "<optional extra notes>"]
@@ -67,7 +67,7 @@ Every **task** (objective + criteria + optional context) is sufficient for a fre
 
 - Include exact files, complete implementation steps, relevant interfaces, and all constraints needed for that task.
 - A task may build on code committed by earlier tasks, but must not require reading another task's text, the parent ticket body, or the parent spec.
-- Each task should produce one reviewable commit.
+- A task may produce one or more commits; it is not defined as a commit.
 
 Run the **Self-Review** checklist BEFORE emitting any tickets or tasks.
 

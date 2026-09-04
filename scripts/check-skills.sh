@@ -33,6 +33,15 @@ grep -q -- '--work-type' skills/board-planning/SKILL.md \
 grep -q 'ticket.acceptance_criteria' skills/board-planning/SKILL.md \
   && fail "board-planning still mentions ticket.acceptance_criteria"
 
+for wt in code_implementation investigation documentation design; do
+  grep -q "$wt" skills/board-planning/SKILL.md \
+    || fail "board-planning missing legal work-type '$wt'"
+done
+grep -q 'human_input' skills/board-planning/SKILL.md \
+  && fail "board-planning still mentions illegal work-type human_input"
+grep -q '|decision>' skills/board-planning/SKILL.md \
+  && fail "board-planning still mentions illegal work-type decision"
+
 grep -q 'abd next' skills/board-execute/SKILL.md \
   && fail "board-execute still uses abd next as the loop"
 grep -q 'Runs' skills/board-execute/SKILL.md \

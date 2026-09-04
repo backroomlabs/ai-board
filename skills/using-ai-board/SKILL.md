@@ -62,7 +62,7 @@ abd task add --ticket-id ID --title T --work-type TYPE --objective "..." --crite
 abd task list --ticket-id ID                 → tasks for a ticket
 abd task show TASK_ID                        → task JSON
 abd next [--spec-id ID]                      → leftover status command (unused by skills)
-abd update TICKET_ID --status S [--context "..."] [--bump-attempts]
+abd update TICKET_ID --status S [--context "..."] [--bump-attempts]  → leftover status command
 abd needs-human [--spec-id ID]               → leftover status command
 abd serve [--port 4141]                      → live editable UI at http://localhost:4141
 ```
