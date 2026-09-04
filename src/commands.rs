@@ -193,10 +193,14 @@ pub fn add_task(
     Ok(json!({"id": conn.last_insert_rowid()}))
 }
 
+pub fn list_tasks_json(conn: &Connection, ticket_id: i64) -> Result<Value> {
+    ensure_ticket_exists(conn, ticket_id)?;
+    Ok(serde_json::to_value(tasks_for_ticket(conn, ticket_id)?)?)
+}
+
 pub fn list_tasks(ticket_id: i64) -> Result<Value> {
     let conn = db::open()?;
-    ensure_ticket_exists(&conn, ticket_id)?;
-    Ok(serde_json::to_value(tasks_for_ticket(&conn, ticket_id)?)?)
+    list_tasks_json(&conn, ticket_id)
 }
 
 pub fn show_task(task_id: i64) -> Result<Value> {
@@ -208,6 +212,45 @@ pub fn task_json(conn: &Connection, task_id: i64) -> Result<Value> {
     let task = row_to_task(conn, task_id)?
         .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
     Ok(serde_json::to_value(task)?)
+}
+
+pub fn update_task_content(
+    task_id: i64,
+    title: &str,
+    work_type: &str,
+    objective: &str,
+    acceptance_criteria: &Value,
+    context: &str,
+) -> Result<Value> {
+    if title.trim().is_empty() {
+        anyhow::bail!("title must not be empty");
+    }
+    if objective.trim().is_empty() {
+        anyhow::bail!("objective must not be empty");
+    }
+    let work_type = WorkType::from_str(work_type)?;
+    if !acceptance_criteria.is_array() {
+        anyhow::bail!("acceptance_criteria must be a JSON array");
+    }
+    let criteria_json = serde_json::to_string(acceptance_criteria)?;
+    let conn = db::open()?;
+    let changed = conn.execute(
+        "UPDATE task
+         SET title = ?1, work_type = ?2, objective = ?3, acceptance_criteria = ?4, context = ?5
+         WHERE id = ?6",
+        rusqlite::params![
+            title,
+            work_type.as_str(),
+            objective,
+            criteria_json,
+            context,
+            task_id
+        ],
+    )?;
+    if changed == 0 {
+        anyhow::bail!("task {task_id} not found");
+    }
+    task_json(&conn, task_id)
 }
 
 pub fn ticket_json(conn: &Connection, ticket_id: i64) -> Result<Value> {
