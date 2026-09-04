@@ -556,6 +556,16 @@ mod tests {
         assert!(INDEX_HTML.contains("description,"));
         assert!(!INDEX_HTML.contains("/api/design"));
         assert!(!INDEX_HTML.contains("ticket.spec"));
+        assert!(INDEX_HTML.contains("definitions_of_done"));
+        assert!(INDEX_HTML.contains("/api/tasks"));
+        assert!(INDEX_HTML.contains("/api/task/"));
+        assert!(!INDEX_HTML.contains("ticket.acceptance_criteria"));
+        assert!(INDEX_HTML.contains(
+            "JSON.stringify({ title, description, definitions_of_done })"
+        ));
+        assert!(!INDEX_HTML.contains(
+            "JSON.stringify({ title, description, acceptance_criteria })"
+        ));
     }
 
     fn env_lock() -> &'static Mutex<()> {

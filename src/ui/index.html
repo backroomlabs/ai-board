@@ -48,6 +48,12 @@
   .criteria-row textarea:focus { outline:none; border-color:var(--accent); }
   .icon-btn { width:32px; height:32px; display:inline-grid; place-items:center; background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; cursor:pointer; font-size:18px; line-height:1; }
   .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .task-panel { margin-top:16px; border-top:1px solid #2a2f3d; padding-top:12px; }
+  .task-card { border:1px solid #2a2f3d; border-radius:8px; padding:10px; margin-bottom:10px; background:#11141d; display:flex; flex-direction:column; gap:8px; }
+  .task-card input, .task-card select, .task-card textarea { width:100%; background:var(--bg); color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:6px 8px; font:13px/1.4 system-ui, sans-serif; }
+  .task-card textarea.mono { font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .task-card label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  .task-actions { display:flex; justify-content:flex-end; gap:8px; }
 </style>
 <style id="easymde-css">
 /**
@@ -159,23 +165,56 @@ function Board({ tickets, onTicketClick }) {
   `;
 }
 
-function DetailModal({ ticket, onClose }) {
+function DetailModal({ ticketId, onClose }) {
+  const [ticket, setTicket] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (ticketId == null) {
+      setTicket(null);
+      setError(null);
+      return;
+    }
+    let alive = true;
+    setTicket(null);
+    setError(null);
+    fetch('/api/ticket/' + ticketId)
+      .then(r => { if (!r.ok) throw new Error(`ticket ${ticketId} not found`); return r.json(); })
+      .then(t => { if (alive) setTicket(t); })
+      .catch(e => { if (alive) setError(e.message); });
+    return () => { alive = false; };
+  }, [ticketId]);
+
   function handleEdit() {
     onClose();
-    window.location.hash = `#/ticket/${ticket.id}/edit`;
+    window.location.hash = `#/ticket/${ticketId}/edit`;
   }
 
   return html`
-    <${Modal} open=${!!ticket} onClose=${onClose}>
+    <${Modal} open=${ticketId != null} onClose=${onClose}>
+      ${error && html`
+        <button class="close-btn" onClick=${onClose}>close</button>
+        <p style="color:var(--warn)">${error}</p>
+      `}
+      ${!error && !ticket && ticketId != null && html`
+        <button class="close-btn" onClick=${onClose}>close</button>
+        <p style="color:var(--muted)">Loading…</p>
+      `}
       ${ticket && html`
         <button class="close-btn" style="margin-left:8px" onClick=${handleEdit}>Edit</button>
         <button class="close-btn" onClick=${onClose}>close</button>
         <h3>#${ticket.id} ${ticket.title} — ${ticket.status}</h3>
         <h4>Description</h4>
         <pre>${ticket.description}</pre>
-        <h4>Acceptance criteria</h4>
+        <h4>Definitions of done</h4>
         <ul class="crit">
-          ${(ticket.acceptance_criteria || []).map((c, i) => html`<li key=${i}><code>${String(c)}</code></li>`)}
+          ${(ticket.definitions_of_done || []).map((c, i) => html`<li key=${i}>${String(c)}</li>`)}
+        </ul>
+        <h4>Tasks</h4>
+        <ul class="crit">
+          ${(ticket.tasks || []).map((task, i) => html`
+            <li key=${task.id || i}>${task.title} — ${task.work_type}</li>
+          `)}
         </ul>
         ${ticket.human_context && html`<h4>Needs human</h4><pre>${ticket.human_context}</pre>`}
       `}
@@ -221,13 +260,48 @@ function ticketEditorLoadRequest(ticketId) {
   return { url: `/api/ticket/${ticketId}` };
 }
 
-function ticketEditorUpdateRequest(ticketId, title, description, acceptance_criteria) {
+function ticketEditorUpdateRequest(ticketId, title, description, definitions_of_done) {
   return {
     url: `/api/ticket/${ticketId}`,
     options: {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title, description, acceptance_criteria }),
+      body: JSON.stringify({ title, description, definitions_of_done }),
+    },
+  };
+}
+
+function taskCreateRequest(ticketId, title, work_type, objective, acceptance_criteria, context) {
+  return {
+    url: '/api/tasks',
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ticket_id: ticketId,
+        title,
+        work_type,
+        objective,
+        acceptance_criteria,
+        context,
+      }),
+    },
+  };
+}
+
+function taskUpdateRequest(taskId, title, work_type, objective, acceptance_criteria, context) {
+  return {
+    url: `/api/task/${taskId}`,
+    options: {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        work_type,
+        objective,
+        acceptance_criteria,
+        context,
+      }),
     },
   };
 }
@@ -326,24 +400,41 @@ function EditSpecPage({ specId }) {
 }
 
 function EditTicketPage({ ticketId }) {
+  const WORK_TYPES = ['code_implementation', 'investigation', 'documentation', 'design'];
   const [ticket, setTicket] = useState(null);
   const [title, setTitle] = useState('');
-  const [criteria, setCriteria] = useState([]);
+  const [dod, setDod] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const textareaRef = useRef(null);
   const editorRef = useRef(null);
 
-  useEffect(() => {
+  function applyTicket(t) {
+    setTicket(t);
+    setTitle(t.title);
+    setDod(Array.isArray(t.definitions_of_done) ? t.definitions_of_done.map(c => String(c)) : []);
+    setTasks(Array.isArray(t.tasks) ? t.tasks.map(task => ({
+      ...task,
+      acceptance_criteria: Array.isArray(task.acceptance_criteria)
+        ? task.acceptance_criteria.map(c => String(c))
+        : [],
+      context: task.context == null ? '' : String(task.context),
+      objective: task.objective == null ? '' : String(task.objective),
+    })) : []);
+  }
+
+  async function reloadTicket() {
     const request = ticketEditorLoadRequest(ticketId);
-    fetch(request.url, request.options)
-      .then(r => { if (!r.ok) throw new Error(`ticket ${ticketId} not found`); return r.json(); })
-      .then(t => {
-        setTicket(t);
-        setTitle(t.title);
-        setCriteria(Array.isArray(t.acceptance_criteria) ? t.acceptance_criteria.map(c => String(c)) : []);
-      })
-      .catch(e => setError(e.message));
+    const r = await fetch(request.url, request.options);
+    if (!r.ok) throw new Error(`ticket ${ticketId} not found`);
+    const t = await r.json();
+    applyTicket(t);
+    return t;
+  }
+
+  useEffect(() => {
+    reloadTicket().catch(e => setError(e.message));
   }, [ticketId]);
 
   useEffect(() => {
@@ -360,16 +451,97 @@ function EditTicketPage({ ticketId }) {
     };
   }, [ticket]);
 
-  function updateCriterion(index, value) {
-    setCriteria(items => items.map((item, i) => i === index ? value : item));
+  function updateDod(index, value) {
+    setDod(items => items.map((item, i) => i === index ? value : item));
   }
 
-  function addCriterion() {
-    setCriteria(items => [...items, '']);
+  function addDod() {
+    setDod(items => [...items, '']);
   }
 
-  function removeCriterion(index) {
-    setCriteria(items => items.filter((_, i) => i !== index));
+  function removeDod(index) {
+    setDod(items => items.filter((_, i) => i !== index));
+  }
+
+  function updateTaskField(taskId, field, value) {
+    setTasks(items => items.map(task => task.id === taskId ? { ...task, [field]: value } : task));
+  }
+
+  function updateTaskCriterion(taskId, index, value) {
+    setTasks(items => items.map(task => {
+      if (task.id !== taskId) return task;
+      const acceptance_criteria = task.acceptance_criteria.map((c, i) => i === index ? value : c);
+      return { ...task, acceptance_criteria };
+    }));
+  }
+
+  function addTaskCriterion(taskId) {
+    setTasks(items => items.map(task =>
+      task.id === taskId
+        ? { ...task, acceptance_criteria: [...task.acceptance_criteria, ''] }
+        : task
+    ));
+  }
+
+  function removeTaskCriterion(taskId, index) {
+    setTasks(items => items.map(task =>
+      task.id === taskId
+        ? { ...task, acceptance_criteria: task.acceptance_criteria.filter((_, i) => i !== index) }
+        : task
+    ));
+  }
+
+  async function handleSaveTask(task) {
+    setSaving(true);
+    setError(null);
+    try {
+      if (String(task.title || '').trim() === '') throw new Error('task title must not be empty');
+      if (String(task.objective || '').trim() === '') throw new Error('task objective must not be empty');
+      const acceptance_criteria = (task.acceptance_criteria || []).filter(c => c.trim() !== '');
+      const request = taskUpdateRequest(
+        task.id,
+        task.title,
+        task.work_type,
+        task.objective,
+        acceptance_criteria,
+        task.context || '',
+      );
+      const res = await fetch(request.url, request.options);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(j.error || res.statusText);
+      }
+      await reloadTicket();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAddTask() {
+    setSaving(true);
+    setError(null);
+    try {
+      const request = taskCreateRequest(
+        ticketId,
+        'New task',
+        'code_implementation',
+        'Objective',
+        [],
+        '',
+      );
+      const res = await fetch(request.url, request.options);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(j.error || res.statusText);
+      }
+      await reloadTicket();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleSave() {
@@ -386,12 +558,12 @@ function EditTicketPage({ ticketId }) {
     setSaving(true);
     setError(null);
     try {
-      const acceptance_criteria = criteria.filter(c => c.trim() !== '');
+      const definitions_of_done = dod.filter(c => c.trim() !== '');
       const request = ticketEditorUpdateRequest(
         ticketId,
         title,
         description,
-        acceptance_criteria,
+        definitions_of_done,
       );
       const res = await fetch(request.url, request.options);
       if (!res.ok) {
@@ -437,17 +609,67 @@ function EditTicketPage({ ticketId }) {
         </div>
         <div class="criteria-panel">
           <div class="criteria-head">
-            <h3>Acceptance criteria</h3>
-            <button class="icon-btn" title="Add criterion" onClick=${addCriterion}>+</button>
+            <h3>Definitions of done</h3>
+            <button class="icon-btn" title="Add definition" onClick=${addDod}>+</button>
           </div>
           <div class="criteria-list">
-            ${criteria.map((criterion, i) => html`
+            ${dod.map((item, i) => html`
               <div class="criteria-row" key=${i}>
                 <textarea
-                  value=${criterion}
-                  onInput=${e => updateCriterion(i, e.target.value)}
+                  value=${item}
+                  onInput=${e => updateDod(i, e.target.value)}
                 />
-                <button class="icon-btn" title="Remove criterion" onClick=${() => removeCriterion(i)}>-</button>
+                <button class="icon-btn" title="Remove definition" onClick=${() => removeDod(i)}>-</button>
+              </div>
+            `)}
+          </div>
+          <div class="task-panel">
+            <div class="criteria-head">
+              <h3>Tasks</h3>
+              <button class="btn-secondary" onClick=${handleAddTask} disabled=${saving}>+ Task</button>
+            </div>
+            ${tasks.map(task => html`
+              <div class="task-card" key=${task.id}>
+                <label>Title</label>
+                <input
+                  type="text"
+                  value=${task.title}
+                  onInput=${e => updateTaskField(task.id, 'title', e.target.value)}
+                />
+                <label>Work type</label>
+                <select
+                  value=${task.work_type}
+                  onChange=${e => updateTaskField(task.id, 'work_type', e.target.value)}
+                >
+                  ${WORK_TYPES.map(wt => html`<option key=${wt} value=${wt}>${wt}</option>`)}
+                </select>
+                <label>Objective</label>
+                <textarea
+                  value=${task.objective}
+                  onInput=${e => updateTaskField(task.id, 'objective', e.target.value)}
+                />
+                <label>Acceptance criteria</label>
+                <div class="criteria-list">
+                  ${(task.acceptance_criteria || []).map((criterion, i) => html`
+                    <div class="criteria-row" key=${i}>
+                      <textarea
+                        class="mono"
+                        value=${criterion}
+                        onInput=${e => updateTaskCriterion(task.id, i, e.target.value)}
+                      />
+                      <button class="icon-btn" title="Remove criterion" onClick=${() => removeTaskCriterion(task.id, i)}>-</button>
+                    </div>
+                  `)}
+                  <button class="icon-btn" title="Add criterion" onClick=${() => addTaskCriterion(task.id)}>+</button>
+                </div>
+                <label>Context</label>
+                <textarea
+                  value=${task.context || ''}
+                  onInput=${e => updateTaskField(task.id, 'context', e.target.value)}
+                />
+                <div class="task-actions">
+                  <button class="btn-primary" onClick=${() => handleSaveTask(task)} disabled=${saving}>Save</button>
+                </div>
               </div>
             `)}
           </div>
@@ -456,7 +678,6 @@ function EditTicketPage({ ticketId }) {
     </div>
   `;
 }
-
 function App() {
   const [specs, setSpecs] = useState([]);
   const [currentSpec, setCurrentSpec] = useState(null);
@@ -529,8 +750,6 @@ function App() {
     return html`<${EditSpecPage} specId=${specId} />`;
   }
 
-  const detailTicket = tickets.find(t => t.id === detailId) || null;
-
   return html`
     <${Fragment}>
       <header>
@@ -542,7 +761,7 @@ function App() {
         <span style="color:var(--muted)">${status}</span>
       </header>
       <${Board} tickets=${tickets} onTicketClick=${setDetailId} />
-      <${DetailModal} ticket=${detailTicket} onClose=${() => setDetailId(null)} />
+      <${DetailModal} ticketId=${detailId} onClose=${() => setDetailId(null)} />
       <${SpecModal} data=${specData} onClose=${() => setSpecData(null)} />
     </${Fragment}>
   `;
