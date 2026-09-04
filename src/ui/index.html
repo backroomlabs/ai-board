@@ -45,6 +45,7 @@
   .criteria-list { display:flex; flex-direction:column; gap:8px; }
   .criteria-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:start; }
   .criteria-row textarea { width:100%; min-height:42px; resize:vertical; background:#11141d; color:#e6e9ef; border:1px solid #2a2f3d; border-radius:6px; padding:7px 9px; font:13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .criteria-row.dod-row textarea { font:13px/1.4 system-ui, sans-serif; }
   .criteria-row textarea:focus { outline:none; border-color:var(--accent); }
   .icon-btn { width:32px; height:32px; display:inline-grid; place-items:center; background:none; border:1px solid #2a2f3d; color:#e6e9ef; border-radius:6px; cursor:pointer; font-size:18px; line-height:1; }
   .icon-btn:hover { border-color:var(--accent); color:var(--accent); }
@@ -410,26 +411,34 @@ function EditTicketPage({ ticketId }) {
   const textareaRef = useRef(null);
   const editorRef = useRef(null);
 
-  function applyTicket(t) {
-    setTicket(t);
-    setTitle(t.title);
-    setDod(Array.isArray(t.definitions_of_done) ? t.definitions_of_done.map(c => String(c)) : []);
-    setTasks(Array.isArray(t.tasks) ? t.tasks.map(task => ({
+  function mapTasks(tasks) {
+    return Array.isArray(tasks) ? tasks.map(task => ({
       ...task,
       acceptance_criteria: Array.isArray(task.acceptance_criteria)
         ? task.acceptance_criteria.map(c => String(c))
         : [],
       context: task.context == null ? '' : String(task.context),
       objective: task.objective == null ? '' : String(task.objective),
-    })) : []);
+    })) : [];
   }
 
-  async function reloadTicket() {
+  function applyTicket(t) {
+    setTicket(t);
+    setTitle(t.title);
+    setDod(Array.isArray(t.definitions_of_done) ? t.definitions_of_done.map(c => String(c)) : []);
+    setTasks(mapTasks(t.tasks));
+  }
+
+  async function reloadTicket({ syncDrafts = true } = {}) {
     const request = ticketEditorLoadRequest(ticketId);
     const r = await fetch(request.url, request.options);
     if (!r.ok) throw new Error(`ticket ${ticketId} not found`);
     const t = await r.json();
-    applyTicket(t);
+    if (syncDrafts) {
+      applyTicket(t);
+    } else {
+      setTasks(mapTasks(t.tasks));
+    }
     return t;
   }
 
@@ -449,7 +458,7 @@ function EditTicketPage({ ticketId }) {
     return () => {
       if (editorRef.current) { editorRef.current.toTextArea(); editorRef.current = null; }
     };
-  }, [ticket]);
+  }, [ticket && ticket.id]);
 
   function updateDod(index, value) {
     setDod(items => items.map((item, i) => i === index ? value : item));
@@ -511,7 +520,7 @@ function EditTicketPage({ ticketId }) {
         const j = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(j.error || res.statusText);
       }
-      await reloadTicket();
+      await reloadTicket({ syncDrafts: false });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -536,7 +545,7 @@ function EditTicketPage({ ticketId }) {
         const j = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(j.error || res.statusText);
       }
-      await reloadTicket();
+      await reloadTicket({ syncDrafts: false });
     } catch (e) {
       setError(e.message);
     } finally {
@@ -614,7 +623,7 @@ function EditTicketPage({ ticketId }) {
           </div>
           <div class="criteria-list">
             ${dod.map((item, i) => html`
-              <div class="criteria-row" key=${i}>
+              <div class="criteria-row dod-row" key=${i}>
                 <textarea
                   value=${item}
                   onInput=${e => updateDod(i, e.target.value)}

@@ -566,6 +566,12 @@ mod tests {
         assert!(!INDEX_HTML.contains(
             "JSON.stringify({ title, description, acceptance_criteria })"
         ));
+        // DoD editor rows use prose font; task criteria keep .criteria-row mono.
+        assert!(INDEX_HTML.contains("criteria-row dod-row"));
+        assert!(INDEX_HTML.contains(".criteria-row.dod-row textarea"));
+        assert!(INDEX_HTML.contains(
+            ".criteria-row.dod-row textarea { font:13px/1.4 system-ui, sans-serif; }"
+        ));
     }
 
     fn env_lock() -> &'static Mutex<()> {
