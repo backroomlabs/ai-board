@@ -20,7 +20,11 @@ fn ensure_spec_exists(conn: &Connection, spec_id: i64) -> Result<()> {
 
 fn ensure_ticket_exists(conn: &Connection, ticket_id: i64) -> Result<()> {
     let exists = conn
-        .query_row("SELECT 1 FROM ticket WHERE id = ?1", [ticket_id], |_| Ok(()))
+        .query_row(
+            "SELECT 1 FROM ticket WHERE id = ?1",
+            [ticket_id],
+            |_| Ok(()),
+        )
         .optional()?;
     if exists.is_none() {
         anyhow::bail!("ticket {ticket_id} not found");
@@ -149,9 +153,7 @@ fn row_to_task(conn: &Connection, id: i64) -> Result<Option<Task>> {
 }
 
 fn tasks_for_ticket(conn: &Connection, ticket_id: i64) -> Result<Vec<Task>> {
-    let mut stmt = conn.prepare(
-        "SELECT id FROM task WHERE ticket_id = ?1 ORDER BY id",
-    )?;
+    let mut stmt = conn.prepare("SELECT id FROM task WHERE ticket_id = ?1 ORDER BY id")?;
     let ids: Vec<i64> = stmt
         .query_map([ticket_id], |row| row.get(0))?
         .collect::<rusqlite::Result<_>>()?;
@@ -209,8 +211,8 @@ pub fn show_task(task_id: i64) -> Result<Value> {
 }
 
 pub fn task_json(conn: &Connection, task_id: i64) -> Result<Value> {
-    let task = row_to_task(conn, task_id)?
-        .ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
+    let task =
+        row_to_task(conn, task_id)?.ok_or_else(|| anyhow::anyhow!("task {task_id} not found"))?;
     Ok(serde_json::to_value(task)?)
 }
 

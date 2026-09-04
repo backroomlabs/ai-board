@@ -68,8 +68,8 @@ fn route_json(url: &str) -> Result<serde_json::Value> {
             commands::board_json(&conn, spec_id)
         }
         "/api/tasks" => {
-            let ticket_id = query_ticket_id(url)
-                .ok_or_else(|| anyhow::anyhow!("missing ?ticket_id=<id>"))?;
+            let ticket_id =
+                query_ticket_id(url).ok_or_else(|| anyhow::anyhow!("missing ?ticket_id=<id>"))?;
             commands::list_tasks_json(&conn, ticket_id)
         }
         path if path.starts_with("/api/task/") => {
@@ -307,8 +307,14 @@ fn patch_task_response(id: i64, parsed: &serde_json::Value) -> (String, u16) {
         }
     };
 
-    match commands::update_task_content(id, title, work_type, objective, acceptance_criteria, context)
-    {
+    match commands::update_task_content(
+        id,
+        title,
+        work_type,
+        objective,
+        acceptance_criteria,
+        context,
+    ) {
         Ok(value) => (value.to_string(), 200),
         Err(error) => {
             let message = error.to_string();
@@ -560,18 +566,13 @@ mod tests {
         assert!(INDEX_HTML.contains("/api/tasks"));
         assert!(INDEX_HTML.contains("/api/task/"));
         assert!(!INDEX_HTML.contains("ticket.acceptance_criteria"));
-        assert!(INDEX_HTML.contains(
-            "JSON.stringify({ title, description, definitions_of_done })"
-        ));
-        assert!(!INDEX_HTML.contains(
-            "JSON.stringify({ title, description, acceptance_criteria })"
-        ));
+        assert!(INDEX_HTML.contains("JSON.stringify({ title, description, definitions_of_done })"));
+        assert!(!INDEX_HTML.contains("JSON.stringify({ title, description, acceptance_criteria })"));
         // DoD editor rows use prose font; task criteria keep .criteria-row mono.
         assert!(INDEX_HTML.contains("criteria-row dod-row"));
         assert!(INDEX_HTML.contains(".criteria-row.dod-row textarea"));
-        assert!(INDEX_HTML.contains(
-            ".criteria-row.dod-row textarea { font:13px/1.4 system-ui, sans-serif; }"
-        ));
+        assert!(INDEX_HTML
+            .contains(".criteria-row.dod-row textarea { font:13px/1.4 system-ui, sans-serif; }"));
     }
 
     fn env_lock() -> &'static Mutex<()> {
@@ -833,13 +834,16 @@ mod tests {
         let created: serde_json::Value = serde_json::from_str(&body).unwrap();
         let id = created["id"].as_i64().unwrap();
 
-        let (body, code) = patch_task_response(id, &serde_json::json!({
-            "title": "range 2",
-            "work_type": "investigation",
-            "objective": "survey",
-            "acceptance_criteria": [],
-            "context": "see src/range.rs"
-        }));
+        let (body, code) = patch_task_response(
+            id,
+            &serde_json::json!({
+                "title": "range 2",
+                "work_type": "investigation",
+                "objective": "survey",
+                "acceptance_criteria": [],
+                "context": "see src/range.rs"
+            }),
+        );
         assert_eq!(code, 200);
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["title"], "range 2");
@@ -860,7 +864,10 @@ mod tests {
         }));
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(code, 400);
-        assert!(value["error"].as_str().unwrap().contains("invalid work type"));
+        assert!(value["error"]
+            .as_str()
+            .unwrap()
+            .contains("invalid work type"));
     }
 
     #[test]

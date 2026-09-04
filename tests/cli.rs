@@ -129,7 +129,10 @@ fn task_add_list_show_and_ticket_show_nests_tasks() {
         .clone();
     let shown: Value = serde_json::from_slice(&shown).unwrap();
     assert_eq!(shown["objective"], "detect range");
-    assert_eq!(shown["acceptance_criteria"], json!(["cargo test range => PASS"]));
+    assert_eq!(
+        shown["acceptance_criteria"],
+        json!(["cargo test range => PASS"])
+    );
 
     let ticket = board(&dir)
         .args(["ticket", "show", &ticket_id.to_string()])
