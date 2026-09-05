@@ -1,3 +1,4 @@
+mod acp;
 mod commands;
 mod db;
 mod models;
@@ -64,6 +65,18 @@ enum Cmd {
     Serve {
         #[arg(long, default_value_t = 4141)]
         port: u16,
+    },
+
+    /// One-shot ACP prompt turn (JSONL on stdout).
+    Acp {
+        #[arg(long)]
+        agent: String,
+        #[arg(long)]
+        prompt: String,
+        #[arg(long)]
+        cwd: Option<std::path::PathBuf>,
+        #[arg(long)]
+        config: Option<std::path::PathBuf>,
     },
 }
 
@@ -181,7 +194,30 @@ fn run(cli: Cli) -> Result<Value> {
             TaskCmd::Show { task_id } => commands::show_task(task_id),
         },
         Cmd::Serve { .. } => unreachable!("serve is handled in main"),
+        Cmd::Acp { .. } => unreachable!("acp is handled in main"),
     }
+}
+
+fn run_acp(
+    agent_id: String,
+    prompt: String,
+    cwd: Option<std::path::PathBuf>,
+    config: Option<std::path::PathBuf>,
+) -> anyhow::Result<()> {
+    let home = std::env::var_os("HOME").map(std::path::PathBuf::from);
+    let workspace = std::env::current_dir()?;
+    let agents = acp::config::load_agents(home.as_deref(), &workspace, config.as_deref())?;
+    let spec = acp::config::get_agent(&agents, &agent_id)?;
+    let cwd = match cwd {
+        Some(p) => p,
+        None => std::env::current_dir()?,
+    };
+    let cwd = if cwd.is_absolute() {
+        cwd
+    } else {
+        std::env::current_dir()?.join(cwd)
+    };
+    acp::run::run(spec, &prompt, &cwd, &mut acp::event::JsonlStdoutSink)
 }
 
 fn exit_with_error(error: impl std::fmt::Display) -> ! {
@@ -198,6 +234,18 @@ fn main() {
     // `serve` runs forever and emits no JSON — handle it before the JSON printer.
     if let Cmd::Serve { port } = &cli.command {
         if let Err(error) = serve::serve(*port) {
+            exit_with_error(error);
+        }
+        return;
+    }
+    if let Cmd::Acp {
+        agent,
+        prompt,
+        cwd,
+        config,
+    } = cli.command
+    {
+        if let Err(error) = run_acp(agent, prompt, cwd, config) {
             exit_with_error(error);
         }
         return;
