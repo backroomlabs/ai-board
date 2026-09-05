@@ -1,0 +1,24 @@
+# Example ACP agents. Repo `.abd/agents.yaml` is a symlink here,
+# so `abd acp` from the repo root loads this file as the workspace config.
+#
+#   cargo build --release
+#   ./target/release/abd init
+#   ./target/release/abd acp --agent claude --prompt "Say hi in one sentence."
+#   ./target/release/abd acp --agent codex --prompt "Say hi in one sentence."
+#
+# Needs `npx` (Node). Claude: claude login, or ANTHROPIC_API_KEY /
+# CLAUDE_CODE_OAUTH_TOKEN. Codex: ChatGPT/Codex login, or OPENAI_API_KEY /
+# CODEX_API_KEY. `abd acp` still opens board.db via preflight — `abd init`
+# once at the repo root.
+
+agents:
+  claude:
+    command: npx
+    args: ["-y", "@agentclientprotocol/claude-agent-acp"]
+    env:
+      CLAUDE_CODE_NO_BROWSER: "1"
+  codex:
+    command: npx
+    args: ["-y", "@agentclientprotocol/codex-acp"]
+    env:
+      NO_BROWSER: "1"
