@@ -10,6 +10,13 @@ fn board(dir: &TempDir) -> Command {
     cmd
 }
 
+fn acp_cmd(dir: &TempDir) -> Command {
+    let mut cmd = board(dir);
+    cmd.current_dir(dir.path());
+    cmd.env("HOME", dir.path().join("empty-home"));
+    cmd
+}
+
 fn init(dir: &TempDir) {
     board(dir).arg("init").assert().success();
 }
@@ -874,4 +881,90 @@ fn errors_emit_json_envelope_to_stderr() {
     let v: Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(v["ok"], false);
     assert!(v["error"].is_string());
+}
+
+#[test]
+fn acp_missing_config_file_is_json_error() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let missing = dir.path().join("missing.yaml");
+    let stderr = acp_cmd(&dir)
+        .args(["acp", "--agent", "mock", "--prompt", "hi", "--config"])
+        .arg(&missing)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let value: Value = serde_json::from_slice(&stderr).unwrap();
+    assert_eq!(value["ok"], false);
+    assert!(value["error"]
+        .as_str()
+        .unwrap()
+        .contains(&missing.display().to_string()));
+}
+
+#[test]
+fn acp_unknown_agent_mentions_id() {
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let cfg = dir.path().join("agents.yaml");
+    std::fs::write(&cfg, "agents:\n  mock:\n    command: true\n").unwrap();
+    let stderr = acp_cmd(&dir)
+        .args(["acp", "--agent", "nope", "--prompt", "hi", "--config"])
+        .arg(&cfg)
+        .assert()
+        .failure()
+        .get_output()
+        .stderr
+        .clone();
+    let value: Value = serde_json::from_slice(&stderr).unwrap();
+    assert_eq!(value["ok"], false);
+    assert!(value["error"].as_str().unwrap().contains("nope"));
+}
+
+#[test]
+fn acp_handshake_with_mock() {
+    assert!(
+        std::process::Command::new("npx")
+            .arg("--version")
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false),
+        "npx must be on PATH"
+    );
+    let dir = TempDir::new().unwrap();
+    init(&dir);
+    let cfg = dir.path().join("agents.yaml");
+    std::fs::write(
+        &cfg,
+        "agents:\n  mock:\n    command: npx\n    args: [\"-y\", \"acp-mock@1.1.1\", \"--agent-message\", \"ok\"]\n",
+    )
+    .unwrap();
+    let stdout = acp_cmd(&dir)
+        .args(["acp", "--agent", "mock", "--prompt", "hello", "--config"])
+        .arg(&cfg)
+        .arg("--cwd")
+        .arg(dir.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(stdout).unwrap();
+    let mut types = Vec::new();
+    let mut result_stop = None;
+    for line in text.lines().filter(|l| !l.is_empty()) {
+        let v: Value = serde_json::from_str(line).expect(line);
+        let t = v["type"].as_str().unwrap().to_string();
+        if t == "result" {
+            result_stop = v["stop_reason"].as_str().map(str::to_string);
+        }
+        types.push(t);
+    }
+    assert!(types.contains(&"initialized".to_string()));
+    assert!(types.contains(&"session".to_string()));
+    assert!(types.contains(&"update".to_string()));
+    assert!(types.contains(&"result".to_string()));
+    assert_eq!(result_stop.as_deref(), Some("end_turn"));
 }
