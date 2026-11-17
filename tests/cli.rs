@@ -1,7 +1,5 @@
 use assert_cmd::Command;
-use predicates::prelude::*;
-use serde_json::{json, Value};
-use std::net::TcpListener;
+use serde_json::Value;
 use tempfile::TempDir;
 
 fn board(dir: &TempDir) -> Command {
@@ -10,278 +8,45 @@ fn board(dir: &TempDir) -> Command {
     cmd
 }
 
-fn acp_cmd(dir: &TempDir) -> Command {
-    let mut cmd = board(dir);
-    cmd.current_dir(dir.path());
-    cmd.env("HOME", dir.path().join("empty-home"));
-    cmd
-}
-
 fn init(dir: &TempDir) {
     board(dir).arg("init").assert().success();
 }
 
-fn make_legacy_db(dir: &TempDir) {
-    let conn = rusqlite::Connection::open(dir.path().join("board.db")).unwrap();
-    conn.execute("CREATE TABLE design (id INTEGER PRIMARY KEY)", [])
-        .unwrap();
-}
-
-fn assert_json_error(dir: &TempDir, args: &[&str], expected: &str) {
-    let stderr = board(dir)
-        .args(args)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    assert_eq!(value["ok"], false);
-    assert_eq!(value["error"], expected);
-}
-
-fn make_spec(dir: &TempDir) -> i64 {
-    let content = dir.path().join("spec.md");
-    std::fs::write(&content, "spec").unwrap();
+fn make_design(dir: &TempDir) -> i64 {
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "spec").unwrap();
     let out = board(dir)
-        .args(["spec", "add", "--title", "S", "--file"])
-        .arg(&content)
+        .args(["create-design", "--title", "D", "--file"])
+        .arg(&spec)
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let value: Value = serde_json::from_slice(&out).unwrap();
-    value["id"].as_i64().unwrap()
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    v["id"].as_i64().unwrap()
 }
 
-fn add_ticket(dir: &TempDir, spec_id: i64, title: &str) -> i64 {
+fn add_ticket(dir: &TempDir, design: i64, title: &str) -> i64 {
     let out = board(dir)
         .args([
-            "ticket",
-            "add",
-            "--spec-id",
-            &spec_id.to_string(),
+            "add-ticket",
+            "--design",
+            &design.to_string(),
             "--title",
             title,
-            "--description",
+            "--spec",
             "do x",
-            "--dod",
-            r#"["greeter exists"]"#,
+            "--criteria",
+            r#"["true => PASS"]"#,
         ])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let value: Value = serde_json::from_slice(&out).unwrap();
-    value["id"].as_i64().unwrap()
-}
-
-fn add_task(dir: &TempDir, ticket_id: i64, title: &str) -> i64 {
-    let out = board(dir)
-        .args([
-            "task",
-            "add",
-            "--ticket-id",
-            &ticket_id.to_string(),
-            "--title",
-            title,
-            "--work-type",
-            "code_implementation",
-            "--objective",
-            "detect range",
-            "--criteria",
-            r#"["cargo test range => PASS"]"#,
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    serde_json::from_slice::<Value>(&out).unwrap()["id"]
-        .as_i64()
-        .unwrap()
-}
-
-#[test]
-fn task_add_list_show_and_ticket_show_nests_tasks() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "targeting");
-    let t1 = add_task(&dir, ticket_id, "range");
-    let t2 = add_task(&dir, ticket_id, "nearest");
-
-    let listed = board(&dir)
-        .args(["task", "list", "--ticket-id", &ticket_id.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let listed: Value = serde_json::from_slice(&listed).unwrap();
-    assert_eq!(listed.as_array().unwrap().len(), 2);
-    assert_eq!(listed[0]["id"], t1);
-    assert_eq!(listed[1]["id"], t2);
-    assert_eq!(listed[0]["work_type"], "code_implementation");
-    assert_eq!(listed[0]["context"], "");
-
-    let shown = board(&dir)
-        .args(["task", "show", &t1.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let shown: Value = serde_json::from_slice(&shown).unwrap();
-    assert_eq!(shown["objective"], "detect range");
-    assert_eq!(
-        shown["acceptance_criteria"],
-        json!(["cargo test range => PASS"])
-    );
-
-    let ticket = board(&dir)
-        .args(["ticket", "show", &ticket_id.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let ticket: Value = serde_json::from_slice(&ticket).unwrap();
-    assert_eq!(ticket["tasks"].as_array().unwrap().len(), 2);
-    assert_eq!(ticket["tasks"][0]["title"], "range");
-
-    let tickets = board(&dir)
-        .args(["ticket", "list", "--spec-id", &spec_id.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let tickets: Value = serde_json::from_slice(&tickets).unwrap();
-    assert!(tickets[0].get("tasks").is_none());
-}
-
-#[test]
-fn task_add_rejects_unknown_ticket_and_work_type() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    assert_json_error(
-        &dir,
-        &[
-            "task",
-            "add",
-            "--ticket-id",
-            "999",
-            "--title",
-            "T",
-            "--work-type",
-            "code_implementation",
-            "--objective",
-            "x",
-            "--criteria",
-            "[]",
-        ],
-        "ticket 999 not found",
-    );
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "t");
-    board(&dir)
-        .args([
-            "task",
-            "add",
-            "--ticket-id",
-            &ticket_id.to_string(),
-            "--title",
-            "T",
-            "--work-type",
-            "refactor",
-            "--objective",
-            "x",
-            "--criteria",
-            "[]",
-        ])
-        .assert()
-        .failure();
-}
-
-#[test]
-fn task_add_omitted_context_is_empty_string() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "t");
-    let id = add_task(&dir, ticket_id, "range");
-    let shown = board(&dir)
-        .args(["task", "show", &id.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let shown: Value = serde_json::from_slice(&shown).unwrap();
-    assert_eq!(shown["context"], "");
-}
-
-#[test]
-fn task_add_context_round_trips() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "t");
-    let out = board(&dir)
-        .args([
-            "task",
-            "add",
-            "--ticket-id",
-            &ticket_id.to_string(),
-            "--title",
-            "range",
-            "--work-type",
-            "code_implementation",
-            "--objective",
-            "detect range",
-            "--criteria",
-            r#"["cargo test range => PASS"]"#,
-            "--context",
-            "notes",
-        ])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let id = serde_json::from_slice::<Value>(&out).unwrap()["id"]
-        .as_i64()
-        .unwrap();
-    let shown = board(&dir)
-        .args(["task", "show", &id.to_string()])
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let shown: Value = serde_json::from_slice(&shown).unwrap();
-    assert_eq!(shown["context"], "notes");
-}
-
-#[test]
-fn task_show_unknown_id_errors() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    assert_json_error(&dir, &["task", "show", "999"], "task 999 not found");
-}
-
-#[test]
-fn task_list_rejects_unknown_ticket() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    assert_json_error(
-        &dir,
-        &["task", "list", "--ticket-id", "999"],
-        "ticket 999 not found",
-    );
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    v["id"].as_i64().unwrap()
 }
 
 #[test]
@@ -292,57 +57,56 @@ fn init_creates_db() {
 }
 
 #[test]
-fn spec_add_from_file() {
+fn create_design_from_file() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let content = dir.path().join("spec.md");
-    std::fs::write(&content, "# Authentication\nbody").unwrap();
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "# My Spec\nbody").unwrap();
     let out = board(&dir)
-        .args(["spec", "add", "--title", "Auth", "--file"])
-        .arg(&content)
+        .args(["create-design", "--title", "Auth", "--file"])
+        .arg(&spec)
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let value: Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(value["id"], 1);
-    assert_eq!(value["title"], "Auth");
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["id"], 1);
+    assert_eq!(v["title"], "Auth");
 }
 
 #[test]
-fn spec_add_from_stdin() {
+fn create_design_from_stdin() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     let out = board(&dir)
-        .args(["spec", "add", "--title", "Auth", "--stdin"])
+        .args(["create-design", "--title", "Auth", "--stdin"])
         .write_stdin("# Via stdin")
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let value: Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(value["id"], 1);
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["id"], 1);
 }
 
 #[test]
 fn add_ticket_ok() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
+    let design = make_design(&dir);
     let out = board(&dir)
         .args([
-            "ticket",
-            "add",
-            "--spec-id",
-            &spec_id.to_string(),
+            "add-ticket",
+            "--design",
+            &design.to_string(),
             "--title",
             "T",
-            "--description",
+            "--spec",
             "do x",
-            "--dod",
-            r#"["greeter exists"]"#,
+            "--criteria",
+            r#"["cargo test => PASS"]"#,
         ])
         .assert()
         .success()
@@ -354,21 +118,20 @@ fn add_ticket_ok() {
 }
 
 #[test]
-fn add_ticket_rejects_non_array_dod() {
+fn add_ticket_rejects_non_array_criteria() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
+    let design = make_design(&dir);
     board(&dir)
         .args([
-            "ticket",
-            "add",
-            "--spec-id",
-            &spec_id.to_string(),
+            "add-ticket",
+            "--design",
+            &design.to_string(),
             "--title",
             "T",
-            "--description",
+            "--spec",
             "do x",
-            "--dod",
+            "--criteria",
             r#"{"not":"array"}"#,
         ])
         .assert()
@@ -376,21 +139,20 @@ fn add_ticket_rejects_non_array_dod() {
 }
 
 #[test]
-fn add_ticket_rejects_unknown_spec() {
+fn add_ticket_rejects_unknown_design() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     board(&dir)
         .args([
-            "ticket",
-            "add",
-            "--spec-id",
+            "add-ticket",
+            "--design",
             "999",
             "--title",
             "T",
-            "--description",
+            "--spec",
             "do x",
-            "--dod",
-            r#"["greeter exists"]"#,
+            "--criteria",
+            r#"["true => PASS"]"#,
         ])
         .assert()
         .failure();
@@ -400,12 +162,12 @@ fn add_ticket_rejects_unknown_spec() {
 fn next_claims_oldest_and_sets_implementing() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
-    let first = add_ticket(&dir, spec_id, "first");
-    let _second = add_ticket(&dir, spec_id, "second");
+    let d = make_design(&dir);
+    let first = add_ticket(&dir, d, "first");
+    let _second = add_ticket(&dir, d, "second");
 
     let out = board(&dir)
-        .args(["next", "--spec-id", &spec_id.to_string()])
+        .args(["next", "--design", &d.to_string()])
         .assert()
         .success()
         .get_output()
@@ -432,45 +194,46 @@ fn next_returns_null_when_empty() {
 }
 
 #[test]
-fn next_rejects_unknown_spec() {
+fn show_includes_parent_design_md() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    assert_json_error(&dir, &["next", "--spec-id", "999"], "spec 999 not found");
-}
-
-#[test]
-fn show_returns_ticket_without_parent_content() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "t1");
-
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "DESIGN BODY").unwrap();
     let out = board(&dir)
-        .args(["ticket", "show", &ticket_id.to_string()])
+        .args(["create-design", "--title", "D", "--file"])
+        .arg(&spec)
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let value: Value = serde_json::from_slice(&out).unwrap();
+    let d: i64 = serde_json::from_slice::<Value>(&out).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let t = add_ticket(&dir, d, "t1");
 
-    assert_eq!(value["spec_id"], spec_id);
-    assert_eq!(value["description"], "do x");
-    assert_eq!(value["definitions_of_done"], json!(["greeter exists"]));
-    assert!(value.get("acceptance_criteria").is_none());
-    assert!(value.get("content").is_none());
-    assert!(value.get("design_md").is_none());
+    let out = board(&dir)
+        .args(["show", &t.to_string()])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(v["id"], t);
+    assert_eq!(v["design_md"], "DESIGN BODY");
+    assert!(v["acceptance_criteria"].is_array());
 }
 
 #[test]
 fn list_returns_array() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
-    add_ticket(&dir, spec_id, "a");
-    add_ticket(&dir, spec_id, "b");
+    let d = make_design(&dir);
+    add_ticket(&dir, d, "a");
+    add_ticket(&dir, d, "b");
     let out = board(&dir)
-        .args(["ticket", "list", "--spec-id", &spec_id.to_string()])
+        .args(["list", "--design", &d.to_string()])
         .assert()
         .success()
         .get_output()
@@ -481,26 +244,15 @@ fn list_returns_array() {
 }
 
 #[test]
-fn list_rejects_unknown_spec() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    assert_json_error(
-        &dir,
-        &["ticket", "list", "--spec-id", "999"],
-        "spec 999 not found",
-    );
-}
-
-#[test]
 fn update_status_and_bump_attempts() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "a");
+    let d = make_design(&dir);
+    let t = add_ticket(&dir, d, "a");
     let out = board(&dir)
         .args([
             "update",
-            &ticket_id.to_string(),
+            &t.to_string(),
             "--status",
             "needs_human",
             "--context",
@@ -522,10 +274,10 @@ fn update_status_and_bump_attempts() {
 fn update_rejects_bad_status() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "a");
+    let d = make_design(&dir);
+    let t = add_ticket(&dir, d, "a");
     board(&dir)
-        .args(["update", &ticket_id.to_string(), "--status", "bogus"])
+        .args(["update", &t.to_string(), "--status", "bogus"])
         .assert()
         .failure();
 }
@@ -534,12 +286,12 @@ fn update_rejects_bad_status() {
 fn needs_human_returns_stranded_ticket() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    let spec_id = make_spec(&dir);
-    let ticket_id = add_ticket(&dir, spec_id, "a");
+    let d = make_design(&dir);
+    let t = add_ticket(&dir, d, "a");
     board(&dir)
         .args([
             "update",
-            &ticket_id.to_string(),
+            &t.to_string(),
             "--status",
             "needs_human",
             "--context",
@@ -548,14 +300,14 @@ fn needs_human_returns_stranded_ticket() {
         .assert()
         .success();
     let out = board(&dir)
-        .args(["needs-human", "--spec-id", &spec_id.to_string()])
+        .args(["needs-human", "--design", &d.to_string()])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
     let v: Value = serde_json::from_slice(&out).unwrap();
-    assert_eq!(v["id"], ticket_id);
+    assert_eq!(v["id"], t);
     assert_eq!(v["human_context"], "q");
 }
 
@@ -575,81 +327,75 @@ fn needs_human_null_when_none() {
 }
 
 #[test]
-fn needs_human_rejects_unknown_spec() {
+fn design_prints_raw_markdown() {
     let dir = TempDir::new().unwrap();
     init(&dir);
-    assert_json_error(
-        &dir,
-        &["needs-human", "--spec-id", "999"],
-        "spec 999 not found",
-    );
-}
-
-#[test]
-fn spec_get_prints_raw_content() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let content = dir.path().join("spec.md");
-    std::fs::write(&content, "# Raw\ncontent").unwrap();
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "# Raw\nmd").unwrap();
     let out = board(&dir)
-        .args(["spec", "add", "--title", "S", "--file"])
-        .arg(&content)
+        .args(["create-design", "--title", "D", "--file"])
+        .arg(&spec)
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let spec_id = serde_json::from_slice::<Value>(&out).unwrap()["id"]
+    let d: i64 = serde_json::from_slice::<Value>(&out).unwrap()["id"]
         .as_i64()
         .unwrap();
     let out = board(&dir)
-        .args(["spec", "get", &spec_id.to_string()])
+        .args(["design", "show", &d.to_string()])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    assert_eq!(String::from_utf8(out).unwrap().trim_end(), "# Raw\ncontent");
+    assert_eq!(String::from_utf8(out).unwrap().trim_end(), "# Raw\nmd");
 }
 
 #[test]
-fn spec_list_returns_newest_first() {
+fn design_list_returns_all_designs() {
     let dir = TempDir::new().unwrap();
     init(&dir);
 
-    let content = dir.path().join("spec.md");
-    std::fs::write(&content, "first").unwrap();
+    let spec = dir.path().join("spec.md");
+    std::fs::write(&spec, "first").unwrap();
     board(&dir)
-        .args(["spec", "add", "--title", "First", "--file"])
-        .arg(&content)
+        .args(["create-design", "--title", "First", "--file"])
+        .arg(&spec)
         .assert()
         .success();
-    std::fs::write(&content, "second").unwrap();
+    std::fs::write(&spec, "second").unwrap();
     board(&dir)
-        .args(["spec", "add", "--title", "Second", "--file"])
-        .arg(&content)
+        .args(["create-design", "--title", "Second", "--file"])
+        .arg(&spec)
         .assert()
         .success();
 
     let out = board(&dir)
-        .args(["spec", "list"])
+        .args(["design", "list"])
         .assert()
         .success()
         .get_output()
         .stdout
         .clone();
-    let values: Value = serde_json::from_slice(&out).unwrap();
-    let values = values.as_array().unwrap();
-    assert_eq!(values[0]["title"], "Second");
-    assert_eq!(values[1]["title"], "First");
+    let v: Value = serde_json::from_slice(&out).unwrap();
+    let arr = v.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+    // newest first
+    assert_eq!(arr[0]["title"], "Second");
+    assert_eq!(arr[1]["title"], "First");
+    assert!(arr[0]["id"].is_number());
+    assert!(arr[0]["status"].is_string());
+    assert!(arr[0]["created_at"].is_string());
 }
 
 #[test]
-fn spec_list_empty_returns_empty_array() {
+fn design_list_empty_returns_empty_array() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     let out = board(&dir)
-        .args(["spec", "list"])
+        .args(["design", "list"])
         .assert()
         .success()
         .get_output()
@@ -660,219 +406,11 @@ fn spec_list_empty_returns_empty_array() {
 }
 
 #[test]
-fn removed_design_commands_and_flags_are_rejected() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let content = dir.path().join("legacy-design.md");
-    std::fs::write(&content, "legacy").unwrap();
-
-    board(&dir)
-        .args(["create-design", "--title", "Legacy", "--file"])
-        .arg(&content)
-        .assert()
-        .failure();
-    board(&dir).args(["design", "list"]).assert().failure();
-    board(&dir)
-        .args(["next", "--design", "1"])
-        .assert()
-        .failure();
-    board(&dir).args(["add-ticket"]).assert().failure();
-    board(&dir).args(["show", "1"]).assert().failure();
-    board(&dir)
-        .args(["list", "--spec-id", "1"])
-        .assert()
-        .failure();
-    let spec_id = make_spec(&dir).to_string();
-    board(&dir)
-        .args([
-            "ticket",
-            "add",
-            "--spec-id",
-            &spec_id,
-            "--title",
-            "T",
-            "--description",
-            "valid description",
-            "--criteria",
-            "[]",
-        ])
-        .assert()
-        .failure();
-    board(&dir)
-        .args([
-            "ticket",
-            "add",
-            "--spec-id",
-            &spec_id,
-            "--title",
-            "T",
-            "--description",
-            "valid description",
-            "--spec",
-            "old field",
-            "--dod",
-            "[]",
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "unexpected argument '--spec' found",
-        ));
-}
-
-#[test]
-fn legacy_schema_is_rejected_by_init_and_non_init_commands() {
-    let dir = TempDir::new().unwrap();
-    make_legacy_db(&dir);
-
-    for args in [vec!["init"], vec!["spec", "list"]] {
-        let stderr = board(&dir)
-            .args(args)
-            .assert()
-            .failure()
-            .get_output()
-            .stderr
-            .clone();
-        let value: Value = serde_json::from_slice(&stderr).unwrap();
-        assert!(value["error"]
-            .as_str()
-            .unwrap()
-            .contains("legacy design schema"));
-    }
-}
-
-#[test]
-fn legacy_schema_is_rejected_before_missing_spec_file_validation() {
-    let dir = TempDir::new().unwrap();
-    make_legacy_db(&dir);
-    let missing = dir.path().join("missing.md");
-    let stderr = board(&dir)
-        .args(["spec", "add", "--title", "S", "--file"])
-        .arg(&missing)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    assert!(value["error"]
-        .as_str()
-        .unwrap()
-        .contains("legacy design schema"));
-    assert!(!value["error"]
-        .as_str()
-        .unwrap()
-        .contains("No such file or directory"));
-}
-
-#[test]
-fn legacy_schema_is_rejected_before_serve_port_check() {
-    let dir = TempDir::new().unwrap();
-    make_legacy_db(&dir);
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port().to_string();
-    let stderr = board(&dir)
-        .args(["serve", "--port", &port])
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    assert!(value["error"]
-        .as_str()
-        .unwrap()
-        .contains("legacy design schema"));
-}
-
-#[test]
-fn serve_help_describes_editable_board() {
-    board(&TempDir::new().unwrap())
-        .args(["serve", "--help"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("editable"))
-        .stdout(predicate::str::contains("read-only").not());
-}
-
-#[test]
-fn init_creates_spec_and_ticket_columns() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let conn = rusqlite::Connection::open(dir.path().join("board.db")).unwrap();
-
-    let spec_columns: Vec<String> = conn
-        .prepare("PRAGMA table_info(spec)")
-        .unwrap()
-        .query_map([], |row| row.get(1))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    assert!(spec_columns.contains(&"content".to_string()));
-
-    let ticket_columns: Vec<String> = conn
-        .prepare("PRAGMA table_info(ticket)")
-        .unwrap()
-        .query_map([], |row| row.get(1))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    assert!(ticket_columns.contains(&"spec_id".to_string()));
-    assert!(ticket_columns.contains(&"description".to_string()));
-    assert!(ticket_columns.contains(&"definitions_of_done".to_string()));
-    assert!(!ticket_columns.contains(&"acceptance_criteria".to_string()));
-    assert!(!ticket_columns.contains(&"design_id".to_string()));
-    assert!(!ticket_columns.contains(&"spec".to_string()));
-
-    let task_columns: Vec<String> = conn
-        .prepare("PRAGMA table_info(task)")
-        .unwrap()
-        .query_map([], |row| row.get(1))
-        .unwrap()
-        .collect::<rusqlite::Result<_>>()
-        .unwrap();
-    assert!(task_columns.contains(&"ticket_id".to_string()));
-    assert!(task_columns.contains(&"work_type".to_string()));
-    assert!(task_columns.contains(&"objective".to_string()));
-    assert!(task_columns.contains(&"acceptance_criteria".to_string()));
-    assert!(task_columns.contains(&"context".to_string()));
-}
-
-#[test]
-fn ticket_acceptance_criteria_schema_is_rejected() {
-    let dir = TempDir::new().unwrap();
-    let conn = rusqlite::Connection::open(dir.path().join("board.db")).unwrap();
-    conn.execute_batch(
-        "CREATE TABLE spec (id INTEGER PRIMARY KEY);
-         CREATE TABLE ticket (
-            id INTEGER PRIMARY KEY,
-            spec_id INTEGER,
-            title TEXT,
-            description TEXT,
-            acceptance_criteria TEXT,
-            status TEXT
-         );",
-    )
-    .unwrap();
-    let stderr = board(&dir)
-        .arg("init")
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    let error = value["error"].as_str().unwrap();
-    assert!(error.contains("acceptance_criteria"));
-    assert!(error.contains("recreate the board database"));
-}
-
-#[test]
 fn errors_emit_json_envelope_to_stderr() {
     let dir = TempDir::new().unwrap();
     init(&dir);
     let out = board(&dir)
-        .args(["ticket", "show", "999"])
+        .args(["show", "999"])
         .assert()
         .failure()
         .get_output()
@@ -881,90 +419,4 @@ fn errors_emit_json_envelope_to_stderr() {
     let v: Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(v["ok"], false);
     assert!(v["error"].is_string());
-}
-
-#[test]
-fn acp_missing_config_file_is_json_error() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let missing = dir.path().join("missing.yaml");
-    let stderr = acp_cmd(&dir)
-        .args(["acp", "--agent", "mock", "--prompt", "hi", "--config"])
-        .arg(&missing)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    assert_eq!(value["ok"], false);
-    assert!(value["error"]
-        .as_str()
-        .unwrap()
-        .contains(&missing.display().to_string()));
-}
-
-#[test]
-fn acp_unknown_agent_mentions_id() {
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let cfg = dir.path().join("agents.yaml");
-    std::fs::write(&cfg, "agents:\n  mock:\n    command: true\n").unwrap();
-    let stderr = acp_cmd(&dir)
-        .args(["acp", "--agent", "nope", "--prompt", "hi", "--config"])
-        .arg(&cfg)
-        .assert()
-        .failure()
-        .get_output()
-        .stderr
-        .clone();
-    let value: Value = serde_json::from_slice(&stderr).unwrap();
-    assert_eq!(value["ok"], false);
-    assert!(value["error"].as_str().unwrap().contains("nope"));
-}
-
-#[test]
-fn acp_handshake_with_mock() {
-    assert!(
-        std::process::Command::new("npx")
-            .arg("--version")
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false),
-        "npx must be on PATH"
-    );
-    let dir = TempDir::new().unwrap();
-    init(&dir);
-    let cfg = dir.path().join("agents.yaml");
-    std::fs::write(
-        &cfg,
-        "agents:\n  mock:\n    command: npx\n    args: [\"-y\", \"acp-mock@1.1.1\", \"--agent-message\", \"ok\"]\n",
-    )
-    .unwrap();
-    let stdout = acp_cmd(&dir)
-        .args(["acp", "--agent", "mock", "--prompt", "hello", "--config"])
-        .arg(&cfg)
-        .arg("--cwd")
-        .arg(dir.path())
-        .assert()
-        .success()
-        .get_output()
-        .stdout
-        .clone();
-    let text = String::from_utf8(stdout).unwrap();
-    let mut types = Vec::new();
-    let mut result_stop = None;
-    for line in text.lines().filter(|l| !l.is_empty()) {
-        let v: Value = serde_json::from_str(line).expect(line);
-        let t = v["type"].as_str().unwrap().to_string();
-        if t == "result" {
-            result_stop = v["stop_reason"].as_str().map(str::to_string);
-        }
-        types.push(t);
-    }
-    assert!(types.contains(&"initialized".to_string()));
-    assert!(types.contains(&"session".to_string()));
-    assert!(types.contains(&"update".to_string()));
-    assert!(types.contains(&"result".to_string()));
-    assert_eq!(result_stop.as_deref(), Some("end_turn"));
 }
